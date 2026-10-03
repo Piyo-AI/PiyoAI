@@ -259,6 +259,23 @@ export interface Catalog {
   skipped: number;
 }
 
+export interface MemoryItem {
+  id: string;
+  category: string;
+  text: string;
+  /** "user" (typed here) or "piyo" (remembered during a chat). */
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemorySettings {
+  sensitive: boolean;
+  /** Categories that can be stored right now. */
+  categories: string[];
+  sensitive_categories: string[];
+}
+
 /** What a skill zip contains and asks for, before anything is installed. */
 export interface InstallPreview {
   token: string;
@@ -487,6 +504,15 @@ export const api = {
     request<Vision>("GET", `/api/vision?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
   setVision: (provider: string, model: string, mode: Vision["mode"]) =>
     request<Vision>("PUT", "/api/vision", { provider, model, mode }),
+  memory: (q = "") => request<MemoryItem[]>("GET", `/api/memory?q=${encodeURIComponent(q)}`),
+  addMemory: (text: string, category: string) => request<MemoryItem>("POST", "/api/memory", { text, category }),
+  editMemory: (id: string, text: string, category: string) =>
+    request<MemoryItem>("PUT", `/api/memory/${id}`, { text, category }),
+  deleteMemory: (id: string) => request<void>("DELETE", `/api/memory/${id}`),
+  clearMemory: () => request<{ deleted: number }>("DELETE", "/api/memory"),
+  exportMemory: () => request<MemoryItem[]>("GET", "/api/memory-export"),
+  memorySettings: () => request<MemorySettings>("GET", "/api/memory-settings"),
+  setMemorySensitive: (sensitive: boolean) => request<MemorySettings>("PUT", "/api/memory-settings", { sensitive }),
   catalog: () => request<Catalog>("GET", "/api/catalog"),
   stageCatalogSkill: (name: string, commit: string) =>
     request<InstallPreview>("POST", "/api/catalog/install", { name, commit }),

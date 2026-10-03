@@ -85,7 +85,9 @@ class Agent:
         max_total_tokens: int | None = None,  # budget: input + output over the whole run
         timeout_s: float | None = None,  # budget: wall clock, minus time waiting for approvals
         integration_issue: Callable[[str], str | None] | None = None,  # see RunContext
+        memory_prompt: Callable[[], str] | None = None,  # what the user's memory adds to the system prompt
     ) -> None:
+        self.memory_prompt = memory_prompt
         self.integration_issue = integration_issue
         self.model_caps = model_caps
         self.max_total_tokens = max_total_tokens
@@ -118,6 +120,7 @@ class Agent:
         )
         self.active_skills = ctx.active_skills
         catalog = self.skills.catalog_prompt(self.model_caps)
+        memory = self.memory_prompt() if self.memory_prompt else ""
         started_run = time.monotonic()
         self._approval_wait = 0.0
         self.tokens_used = 0
@@ -133,7 +136,7 @@ class Agent:
                 return
             # Rebuilt each step: loading a skill unlocks more tools.
             specs = [t.spec() for t in self.tools.available(ctx.granted_tools())]
-            system = build_system_prompt(catalog)
+            system = build_system_prompt(catalog, memory)
             done = TurnDone()
             sent = self._fit(messages, specs, system)
             started = time.monotonic()

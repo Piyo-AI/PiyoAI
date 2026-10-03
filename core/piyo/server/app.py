@@ -53,7 +53,9 @@ from piyo.tools import search as search_mod
 from piyo.tools.browser import BrowserInstaller, BrowserSession, PlaywrightSession, browser_tools
 from piyo.tools.calendar import calendar_tools
 from piyo.tools.files import file_tools
+from piyo.store.memory import SENSITIVE_CATEGORIES, MemoryRefused, MemoryStore
 from piyo.tools.gmail import gmail_tools
+from piyo.tools.memory import memory_tools, profile_prompt
 from piyo.tools.google import google_account_tools
 from piyo.tools.search import search_tools
 from piyo.tools.weather import weather_tools
@@ -121,6 +123,35 @@ class CatalogOut(BaseModel):
 class CatalogInstallIn(BaseModel):
     name: str
     commit: str
+
+
+class MemoryOut(BaseModel):
+    id: str
+    category: str
+    text: str
+    source: str
+    created_at: str
+    updated_at: str
+
+
+class MemoryIn(BaseModel):
+    text: str
+    category: str = "note"
+
+
+class MemoryEdit(BaseModel):
+    text: str | None = None
+    category: str | None = None
+
+
+class MemorySettingsOut(BaseModel):
+    sensitive: bool
+    categories: list[str]  # what can be stored right now
+    sensitive_categories: list[str]
+
+
+class MemorySettingsIn(BaseModel):
+    sensitive: bool
 
 
 class InstallCommitIn(BaseModel):
@@ -398,6 +429,7 @@ def create_app(
     google: GoogleAuth | None = None,
     browser: BrowserSession | None = None,
     browser_installer: BrowserInstaller | None = None,
+    memory: MemoryStore | None = None,
     catalog: CatalogClient | None = None,
 ) -> FastAPI:
     google = google or GoogleAuth()
@@ -426,8 +458,10 @@ def create_app(
     reported_context: dict[tuple[str, str], int] = {}  # context windows, same source
     reported_vision: dict[tuple[str, str], bool] = {}
     folders = ApprovedFolders()
+    memory = memory or MemoryStore()
     tools = ToolRegistry(
         core_tools()
+        + memory_tools(memory)
         + file_tools(folders)
         + web_tools()
         + browser_tools(browser)
@@ -900,6 +934,62 @@ def create_app(
 
     catalog_client = catalog or CatalogClient()
 
+    def memory_settings() -> MemorySettingsOut:
+        return MemorySettingsOut(
+            sensitive=memory.settings.sensitive(),
+            categories=list(memory.allowed_categories()),
+            sensitive_categories=list(SENSITIVE_CATEGORIES),
+        )
+
+    def memory_or_404(memory_id: str) -> MemoryOut:
+        try:
+            return MemoryOut(**vars(memory.get(memory_id)))
+        except KeyError:
+            raise HTTPException(status_code=404, detail="unknown memory") from None
+
+    @app.get("/api/memory", dependencies=auth)
+    def list_memory(q: str = "", category: str | None = None, limit: int = 200) -> list[MemoryOut]:
+        limit = min(max(limit, 1), 1000)
+        found = memory.search(q, category, limit) if q.strip() else memory.list(category, limit)
+        return [MemoryOut(**vars(m)) for m in found]
+
+    @app.post("/api/memory", dependencies=auth, status_code=201)
+    def add_memory(body: MemoryIn) -> MemoryOut:
+        try:
+            return MemoryOut(**vars(memory.add(body.text, body.category, source="user")))
+        except MemoryRefused as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.put("/api/memory/{memory_id}", dependencies=auth)
+    def edit_memory(memory_id: str, body: MemoryEdit) -> MemoryOut:
+        memory_or_404(memory_id)
+        try:
+            return MemoryOut(**vars(memory.update(memory_id, body.text, body.category)))
+        except MemoryRefused as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.delete("/api/memory/{memory_id}", dependencies=auth, status_code=204)
+    def delete_memory(memory_id: str) -> None:
+        memory_or_404(memory_id)
+        memory.delete(memory_id)
+
+    @app.delete("/api/memory", dependencies=auth)
+    def clear_memory() -> dict:
+        return {"deleted": memory.clear()}
+
+    @app.get("/api/memory-export", dependencies=auth)
+    def export_memory() -> list[dict]:
+        return memory.export()
+
+    @app.get("/api/memory-settings", dependencies=auth)
+    def get_memory_settings() -> MemorySettingsOut:
+        return memory_settings()
+
+    @app.put("/api/memory-settings", dependencies=auth)
+    def set_memory_settings(body: MemorySettingsIn) -> MemorySettingsOut:
+        memory.settings.set_sensitive(body.sensitive)
+        return memory_settings()
+
     @app.get("/api/catalog", dependencies=auth)
     async def get_catalog() -> CatalogOut:
         try:
@@ -1089,6 +1179,7 @@ def create_app(
                     provider.id, req.model, reported_context.get((provider.id, req.model))
                 ),
                 max_steps=budget.max_steps,
+                memory_prompt=lambda: profile_prompt(memory),
                 max_total_tokens=budget.max_tokens,
                 timeout_s=budget.timeout_s,
                 model_caps=caps_for(provider.id, req.model),

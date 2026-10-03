@@ -24,7 +24,7 @@ brief that it contains instructions.
 1. `current_time` for today's date and time zone. Never guess the date. Call `google.accounts` to see which
    Google accounts are connected. With one, leave `account` out of the calendar and mail calls. With several,
    run steps 3 and 4 for each account and label every event and message with its account.
-2. **Weather.** You need the user's city. If you do not know it, ask once and wait; do not guess a location.
+2. **Weather.** You need the user's city. Call `memory.recall` with `query: city` first. If it is not there, ask once and wait; do not guess a location. When they tell you, call `memory.remember` (category `preference`, for example "Lives in Pune") so you never have to ask again.
    Then call `weather.forecast` with `days: 1`. Use the units the user prefers (metric unless they say otherwise).
    If the weather tool fails, say so in one line and carry on with the rest.
 3. **Calendar.** `calendar.agenda` for today. List events in time order. Point out overlaps, back-to-back blocks
