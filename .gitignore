@@ -25,3 +25,6 @@ Thumbs.db
 .vscode/
 .idea/
 
+
+# Tauri build output
+src-tauri/gen/
