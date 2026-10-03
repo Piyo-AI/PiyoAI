@@ -183,14 +183,16 @@ class RunStore:
                 (MAX_RUNS,),
             )
 
-    def list(self, conversation_id: str | None = None, limit: int = 100) -> list[RunSummary]:
+    def list(
+        self, conversation_id: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[RunSummary]:
         where, args = "", []
         if conversation_id:
             where, args = "WHERE conversation_id = ?", [conversation_id]
         with self._conversations.db() as db:
             rows = db.execute(
-                f"SELECT {_COLUMNS} FROM runs {where} ORDER BY started_at DESC, rowid DESC LIMIT ?",
-                [*args, limit],
+                f"SELECT {_COLUMNS} FROM runs {where} ORDER BY started_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                [*args, limit, offset],
             ).fetchall()
         return [_summary(r) for r in rows]
 

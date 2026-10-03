@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 
-import { api, ApiStyle, FolderEntry, Provider, RunSettings, SkillInfo } from "./api";
+import { api, ApiStyle, FolderEntry, inTauri, pickFolder, Provider, RunSettings, SkillInfo } from "./api";
 
 interface Props {
   providers: Provider[];
@@ -396,6 +396,29 @@ function Folders() {
         ))}
         {folders.length === 0 && <li className="muted">No folders yet.</li>}
       </ul>
+      {inTauri() && (
+        <div className="inline">
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const picked = await pickFolder("Choose a folder Piyo may use");
+                if (picked) {
+                  await save([...folders.filter((x) => x.path !== picked), { path: picked, auto_changes: autoNew }]);
+                }
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            }}
+          >
+            Choose folder…
+          </button>
+          <label className="check">
+            <input type="checkbox" checked={autoNew} onChange={(e) => setAutoNew(e.target.checked)} />
+            Don't ask for changes in the new folder
+          </label>
+        </div>
+      )}
       <form
         className="inline"
         onSubmit={(e) => {
@@ -404,14 +427,16 @@ function Folders() {
         }}
       >
         <input
-          placeholder="Full path, e.g. C:\Users\you\Downloads"
+          placeholder={inTauri() ? "Or paste a full path" : "Full path, e.g. C:\\Users\\you\\Downloads"}
           value={path}
           onChange={(e) => setPath(e.target.value)}
         />
-        <label className="check">
-          <input type="checkbox" checked={autoNew} onChange={(e) => setAutoNew(e.target.checked)} />
-          Don't ask for changes here
-        </label>
+        {!inTauri() && (
+          <label className="check">
+            <input type="checkbox" checked={autoNew} onChange={(e) => setAutoNew(e.target.checked)} />
+            Don't ask for changes here
+          </label>
+        )}
         <button type="submit" disabled={!path.trim()}>
           Add folder
         </button>

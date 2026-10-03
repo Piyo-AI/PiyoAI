@@ -245,6 +245,13 @@ export function resetConnection() {
   connection = null;
 }
 
+/** Tauri only: the system folder dialog. Returns the chosen path, or null if cancelled. */
+export async function pickFolder(title: string): Promise<string | null> {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const chosen = await open({ directory: true, multiple: false, title });
+  return typeof chosen === "string" ? chosen : null;
+}
+
 /** Tauri only: tell the shell to start a fresh core, then forget the old connection. */
 export async function restartCore() {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -308,10 +315,14 @@ export const api = {
     request<ToolMode>("GET", `/api/tool-mode?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
   setToolMode: (provider: string, model: string, mode: ToolMode["mode"]) =>
     request<ToolMode>("PUT", "/api/tool-mode", { provider, model, mode }),
-  runs: (conversationId?: string) =>
-    request<RunInfo[]>("GET", `/api/runs${conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : ""}`),
+  runs: (limit: number, offset: number, conversationId?: string) =>
+    request<RunInfo[]>(
+      "GET",
+      `/api/runs?limit=${limit}&offset=${offset}${conversationId ? `&conversation_id=${encodeURIComponent(conversationId)}` : ""}`,
+    ),
   run: (id: string) => request<RunDetail>("GET", `/api/runs/${id}`),
-  conversations: () => request<ConversationInfo[]>("GET", "/api/conversations"),
+  conversations: (limit: number, offset: number) =>
+    request<ConversationInfo[]>("GET", `/api/conversations?limit=${limit}&offset=${offset}`),
   conversation: (id: string) => request<ConversationDetail>("GET", `/api/conversations/${id}`),
   renameConversation: (id: string, title: string) =>
     request<ConversationInfo>("PATCH", `/api/conversations/${id}`, { title }),
@@ -327,7 +338,8 @@ export const api = {
   setVision: (provider: string, model: string, mode: Vision["mode"]) =>
     request<Vision>("PUT", "/api/vision", { provider, model, mode }),
   setSkillEnabled: (name: string, enabled: boolean) => request<void>("PUT", `/api/skills/${encodeURIComponent(name)}`, { enabled }),
-  audit: () => request<AuditReport>("GET", "/api/audit"),
+  audit: (limit: number, offset: number) =>
+    request<AuditReport>("GET", `/api/audit?limit=${limit}&offset=${offset}`),
   runSettings: () => request<RunSettings>("GET", "/api/run-settings"),
   setRunSettings: (changes: Partial<RunSettings>) => request<RunSettings>("PUT", "/api/run-settings", changes),
   models: (id: string) => request<ModelInfo[]>("GET", `/api/providers/${id}/models`),

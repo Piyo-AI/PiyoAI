@@ -233,3 +233,16 @@ def test_cancelled_run_is_logged_as_cancelled():
         assert ws.receive_json() == {"type": "done", "reason": "cancelled"}
     (summary,) = runs(client)
     assert summary["outcome"] == "cancelled"
+
+
+def test_runs_and_audit_api_paginate():
+    turn_fn = scripted([TurnDone(text="a")], [TurnDone(text="b")], [TurnDone(text="c")])
+    client = TestClient(server.create_app(TOKEN, turn_fn=turn_fn))
+    for text in ("one", "two", "three"):
+        chat(client, text)
+    everything = [r["id"] for r in runs(client)]
+    assert len(everything) == 3
+    first = client.get("/api/runs", params={"limit": 2}, headers=AUTH).json()
+    rest = client.get("/api/runs", params={"limit": 2, "offset": 2}, headers=AUTH).json()
+    assert [r["id"] for r in first + rest] == everything
+    assert client.get("/api/audit", params={"limit": 1, "offset": 5}, headers=AUTH).json()["entries"] == []

@@ -207,11 +207,13 @@ class ConversationStore:
             )
         return conv
 
-    def list(self) -> list[ConversationSummary]:
+    def list(self, limit: int = -1, offset: int = 0) -> list[ConversationSummary]:
+        """Newest activity first. `limit` -1 means all."""
         with self._db() as db:
             rows = db.execute(
                 "SELECT id, title, created_at, updated_at FROM conversations "
-                "ORDER BY updated_at DESC, rowid DESC"
+                "ORDER BY updated_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                (limit, offset),
             ).fetchall()
         return [ConversationSummary(*r) for r in rows]
 

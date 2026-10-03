@@ -386,28 +386,130 @@ button.stop:disabled {
   background: var(--surface);
 }
 
-.history .muted {
-  padding: 4px 8px;
+.chat-empty {
+  margin: 0;
+  padding: 6px 10px;
   font-size: 13px;
+  color: var(--muted);
 }
-
-.history-item {
+.chat-group {
+  margin: 14px 0 4px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.chat-list section:first-child .chat-group {
+  margin-top: 4px;
+}
+.chat-row {
+  position: relative;
   display: flex;
   align-items: center;
   border-radius: 8px;
 }
-
-.history-item.current {
-  background: var(--border);
+.chat-row:hover,
+.chat-row:focus-within {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
 }
-
-.history-item .title {
+.chat-row.current {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+.chat-list button {
+  background: none;
+  color: var(--text);
+  border: 0;
+  font-weight: 400;
+}
+.chat-open {
   flex: 1;
   min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: left;
+}
+.chat-row.current .chat-open {
+  font-weight: 600;
+}
+.chat-open:focus-visible,
+.chat-delete:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* The delete control lives inside the row and only shows when the row is in use. */
+.chat-delete {
+  position: absolute;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  opacity: 0;
+}
+.chat-row:hover .chat-delete,
+.chat-row:focus-within .chat-delete,
+.chat-row.current .chat-delete {
+  opacity: 1;
+}
+.chat-row:hover .chat-open,
+.chat-row:focus-within .chat-open {
+  padding-right: 36px;
+}
+.chat-delete:hover {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+}
+.chat-row.confirm {
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+}
+.chat-confirm-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.chat-list .chat-confirm-yes,
+.chat-list .chat-confirm-no {
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chat-list .chat-confirm-yes {
+  background: var(--error);
+  color: #fff;
+  font-weight: 600;
+}
+.chat-list .chat-confirm-no:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+.chat-list .chat-more {
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.chat-list .chat-more:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text);
+}
+
+.pager {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0 4px;
 }
 
 @media (max-width: 640px) {

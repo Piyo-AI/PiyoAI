@@ -91,14 +91,15 @@ class AuditStore:
             )
         self._head_path.write_text(json.dumps({"seq": seq, "hash": digest}), encoding="utf-8")
 
-    def report(self, limit: int = 200) -> AuditReport:
-        """The newest `limit` entries (newest first) and whether the whole chain checks out."""
+    def report(self, limit: int = 200, offset: int = 0) -> AuditReport:
+        """Entries newest first, skipping the newest `offset`; and whether the chain is intact."""
         with self._conversations.db() as db:
             rows = db.execute("SELECT seq, prev_hash, hash, body FROM audit ORDER BY seq").fetchall()
         problem = self._check(rows)
+        newest_first = rows[::-1][offset : offset + limit]
         entries = [
             AuditEntry(seq, **json.loads(body), prev_hash=prev, hash=h)
-            for seq, prev, h, body in reversed(rows[-limit:])
+            for seq, prev, h, body in newest_first
         ]
         return AuditReport(entries, problem is None, problem)
 

@@ -647,8 +647,9 @@ def create_app(
             raise HTTPException(status_code=404, detail="unknown conversation") from None
 
     @app.get("/api/conversations", dependencies=auth)
-    def list_conversations() -> list[ConversationOut]:
-        return [ConversationOut(**vars(c)) for c in store.list()]
+    def list_conversations(limit: int = 50, offset: int = 0) -> list[ConversationOut]:
+        page = store.list(min(max(limit, 1), 200), max(offset, 0))
+        return [ConversationOut(**vars(c)) for c in page]
 
     @app.get("/api/conversations/{conversation_id}", dependencies=auth)
     def get_conversation(conversation_id: str) -> ConversationDetail:
@@ -668,8 +669,11 @@ def create_app(
         store.delete(conversation_id)
 
     @app.get("/api/runs", dependencies=auth)
-    def list_runs(conversation_id: str | None = None, limit: int = 100) -> list[RunOut]:
-        return [RunOut(**vars(r)) for r in run_store.list(conversation_id, min(max(limit, 1), 500))]
+    def list_runs(
+        conversation_id: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[RunOut]:
+        page = run_store.list(conversation_id, min(max(limit, 1), 500), max(offset, 0))
+        return [RunOut(**vars(r)) for r in page]
 
     @app.get("/api/runs/{run_id}", dependencies=auth)
     def get_run(run_id: str) -> RunDetail:
@@ -679,8 +683,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="unknown run") from None
 
     @app.get("/api/audit", dependencies=auth)
-    def get_audit(limit: int = 200) -> AuditOut:
-        report = audit.report(min(max(limit, 1), 1000))
+    def get_audit(limit: int = 200, offset: int = 0) -> AuditOut:
+        report = audit.report(min(max(limit, 1), 1000), max(offset, 0))
         return AuditOut(
             entries=[AuditEntryOut(**vars(e)) for e in report.entries],
             verified=report.verified,

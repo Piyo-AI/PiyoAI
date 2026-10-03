@@ -101,6 +101,11 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 - **Model capabilities in one place:** `GET /api/model-capabilities?provider&model` composes tool mode, vision, context and
   output limits, each with what the provider reported and what the user set. Reports are cached in memory when the app loads
   a model list. `tests/test_ollama_smoke.py` runs only with `PIYO_OLLAMA_MODEL` set (weekly CI job `ollama-smoke.yml`).
+- **Paging.** `GET /api/conversations`, `/api/runs` and `/api/audit` take `limit` and `offset` (newest first) and return
+  plain lists. The app's `usePaged` hook asks for one extra item to learn if there is a next page, so there is no total
+  count. The audit check (`verified`) always covers the whole chain, whatever page is asked for.
+- **Folder picker:** Settings > Folders uses Tauri's dialog plugin (`pickFolder` in `api.ts`, capability `dialog:allow-open`);
+  in a plain browser only the typed path is offered.
 - Tool names use dots internally (`gmail.read`); the wire name is `gmail__read` (providers reject dots).
 
 ## Invariants (do not break; add a test when touching them)

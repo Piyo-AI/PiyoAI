@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { api, RunDetail, RunInfo } from "./api";
 import { Audit } from "./Audit";
+import { usePaged } from "./usePaged";
+
+const PAGE = 20;
 
 interface Props {
   conversationId: string | null;
@@ -31,19 +34,12 @@ const tokens = (r: RunInfo) =>
 
 /** Task log: every agent run with its model turns, tool calls and approvals. */
 export function Tasks({ conversationId, onClose }: Props) {
-  const [runs, setRuns] = useState<RunInfo[] | null>(null);
   const [thisChat, setThisChat] = useState(!!conversationId);
+  const filter = thisChat && conversationId ? conversationId : undefined;
+  const runs = usePaged((limit, offset) => api.runs(limit, offset, filter), PAGE, [filter]);
   const [open, setOpen] = useState<RunDetail | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"tasks" | "approvals">("tasks");
-
-  useEffect(() => {
-    setError("");
-    api
-      .runs(thisChat && conversationId ? conversationId : undefined)
-      .then(setRuns)
-      .catch((e) => setError((e as Error).message));
-  }, [thisChat, conversationId]);
 
   const show = (id: string) =>
     api
@@ -60,7 +56,7 @@ export function Tasks({ conversationId, onClose }: Props) {
             ✕
           </button>
         </header>
-        {error && <p className="error">{error}</p>}
+        {(error || runs.error) && <p className="error">{error || runs.error}</p>}
         {!open && (
           <div className="tabs" role="tablist">
             <button role="tab" aria-selected={tab === "tasks"} className={tab === "tasks" ? "active" : ""} onClick={() => setTab("tasks")}>
@@ -86,9 +82,9 @@ export function Tasks({ conversationId, onClose }: Props) {
                 This chat only
               </label>
             )}
-            {runs && runs.length === 0 && <p className="hint">No tasks yet.</p>}
+            {!runs.loading && runs.items.length === 0 && <p className="hint">No tasks yet.</p>}
             <ul className="runs">
-              {runs?.map((r) => (
+              {runs.items.map((r) => (
                 <li key={r.id}>
                   <button className="ghost run-row" onClick={() => show(r.id)}>
                     <span className="run-request">{r.request || "(no text)"}</span>
@@ -100,6 +96,13 @@ export function Tasks({ conversationId, onClose }: Props) {
                 </li>
               ))}
             </ul>
+            {runs.hasMore && (
+              <div className="pager">
+                <button className="ghost" onClick={runs.loadMore} disabled={runs.loading}>
+                  {runs.loading ? "Loading…" : "Show more"}
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

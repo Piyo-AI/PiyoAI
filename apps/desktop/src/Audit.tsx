@@ -1,18 +1,23 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { api, AuditReport } from "./api";
+import { api } from "./api";
+import { usePaged } from "./usePaged";
+
+const PAGE = 20;
 
 /** Every approval decision, newest first, with a check that the record has not been altered. */
 export function Audit() {
-  const [report, setReport] = useState<AuditReport | null>(null);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    api
-      .audit()
-      .then(setReport)
-      .catch((e) => setError((e as Error).message));
-  }, []);
+  // The check covers the whole record on every page, so keep the latest answer.
+  const [status, setStatus] = useState<{ verified: boolean; problem: string | null } | null>(null);
+  const entries = usePaged(
+    async (limit, offset) => {
+      const report = await api.audit(limit, offset);
+      setStatus({ verified: report.verified, problem: report.problem });
+      return report.entries;
+    },
+    PAGE,
+    [],
+  );
 
   return (
     <>
@@ -20,15 +25,15 @@ export function Audit() {
         Each time Piyo asked and you answered. The exact request is kept and linked to the one before it, so a change
         to an old entry shows up here.
       </p>
-      {error && <p className="error">{error}</p>}
-      {report && (
-        <p className={`audit-status ${report.verified ? "" : "bad"}`} role="status">
-          {report.verified
-            ? `Record checked: ${report.entries.length === 0 ? "nothing recorded yet" : "no changes found"}.`
-            : `This record may have been changed. ${report.problem ?? ""}`}
+      {entries.error && <p className="error">{entries.error}</p>}
+      {status && (
+        <p className={`audit-status ${status.verified ? "" : "bad"}`} role="status">
+          {status.verified
+            ? `Record checked: ${!entries.loading && entries.items.length === 0 ? "nothing recorded yet" : "no changes found"}.`
+            : `This record may have been changed. ${status.problem ?? ""}`}
         </p>
       )}
-      {report?.entries.map((e) => (
+      {entries.items.map((e) => (
         <div key={e.seq} className="audit-entry">
           <p>
             <span className={`decision ${e.decision}`}>{e.decision === "allowed" ? "Allowed" : "Declined"}</span>
@@ -45,6 +50,13 @@ export function Audit() {
           </details>
         </div>
       ))}
+      {entries.hasMore && (
+        <div className="pager">
+          <button className="ghost" onClick={entries.loadMore} disabled={entries.loading}>
+            {entries.loading ? "Loading…" : "Show more"}
+          </button>
+        </div>
+      )}
     </>
   );
 }

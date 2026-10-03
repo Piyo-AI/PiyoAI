@@ -1,6 +1,7 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { api, inTauri, ModelInfo, onCoreExit, Provider, resetConnection, restartCore } from "./api";
+import { ChatList } from "./ChatList";
 import { ModelSettings } from "./ModelSettings";
 import { Settings } from "./Settings";
 import { useModelWarnings } from "./useModelWarnings";
@@ -44,8 +45,10 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showTasks, setShowTasks] = useState(false);
   const [input, setInput] = useState("");
-  const { messages, busy, isStopping, approvals, conversations, conversationId, send, respond, stop, newChat, open, remove } =
-    useChat();
+  const {
+    messages, busy, isStopping, approvals, conversations, hasMoreConversations, loadingConversations,
+    loadMoreConversations, conversationId, send, respond, stop, newChat, open, remove,
+  } = useChat();
   const bottom = useRef<HTMLDivElement>(null);
 
   const provider = providers.find((p) => p.id === providerId);
@@ -218,23 +221,17 @@ export default function App() {
       </header>
 
       <div className="body">
-      <aside className="history" aria-label="Past chats">
-        {conversations.length === 0 && <p className="muted">Your chats will appear here.</p>}
-        {conversations.map((c) => (
-          <div key={c.id} className={`history-item${c.id === conversationId ? " current" : ""}`}>
-            <button className="ghost title" onClick={() => open(c.id)} disabled={busy} title={c.title}>
-              {c.title}
-            </button>
-            <button
-              className="ghost danger"
-              aria-label={`Delete ${c.title}`}
-              disabled={busy}
-              onClick={() => window.confirm(`Delete "${c.title}"? This can't be undone.`) && remove(c.id)}
-            >
-              ✕
-            </button>
-          </div>
-        ))}
+      <aside className="history">
+        <ChatList
+          conversations={conversations}
+          currentId={conversationId}
+          busy={busy}
+          hasMore={hasMoreConversations}
+          loading={loadingConversations}
+          onOpen={open}
+          onDelete={remove}
+          onMore={loadMoreConversations}
+        />
       </aside>
       <div className="pane">
       <main className="chat">

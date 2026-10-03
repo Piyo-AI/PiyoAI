@@ -223,3 +223,14 @@ def test_audit_api_records_both_decisions_from_a_real_run():
     ]
     assert report["entries"][1]["run_id"] == runs(client)[0]["id"]
     assert client.get("/api/audit").status_code == 401
+
+
+def test_audit_report_pages_but_still_verifies_the_whole_chain(audit):
+    _, store = audit
+    for n in range(5):
+        add(store, n)
+    assert [e.seq for e in store.report(2, 0).entries] == [5, 4]
+    assert [e.seq for e in store.report(2, 2).entries] == [3, 2]
+    last = store.report(2, 4)
+    assert [e.seq for e in last.entries] == [1] and last.verified
+    assert store.report(2, 9).entries == [] and store.report(2, 9).verified

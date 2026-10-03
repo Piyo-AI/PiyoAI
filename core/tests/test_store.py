@@ -144,3 +144,29 @@ def test_timestamps_never_tie_even_within_one_millisecond(monkeypatch):
     monkeypatch.setattr(conversations, "_last_now", conversations._last_now)  # restored afterwards
     stamps = [conversations._now() for _ in range(3)]
     assert stamps == sorted(set(stamps))
+
+
+def test_list_pages_without_gaps_or_repeats(store):
+    ids = [store.create().id for _ in range(5)]  # newest last created
+    newest_first = ids[::-1]
+    assert [c.id for c in store.list(2, 0)] == newest_first[:2]
+    assert [c.id for c in store.list(2, 2)] == newest_first[2:4]
+    assert [c.id for c in store.list(2, 4)] == newest_first[4:]
+    assert store.list(2, 10) == []
+    assert [c.id for c in store.list()] == newest_first
+
+
+def test_conversations_api_paginates(tmp_path):
+    from fastapi.testclient import TestClient
+    from test_server import AUTH, TOKEN
+
+    from piyo.server import app as server
+
+    store = ConversationStore(tmp_path / "api.db")
+    client = TestClient(server.create_app(TOKEN, store=store))
+    ids = [store.create().id for _ in range(7)][::-1]
+    page = lambda **q: [c["id"] for c in client.get("/api/conversations", params=q, headers=AUTH).json()]  # noqa: E731
+    assert page(limit=3) == ids[:3]
+    assert page(limit=3, offset=3) == ids[3:6]
+    assert page(limit=3, offset=6) == ids[6:]
+    assert page(limit=0) == ids[:1]  # clamped to at least one

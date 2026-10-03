@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, ChatEvent, ChatMessage, ChatSocket, ConversationInfo, StoredMessage } from "./api";
+import { api, ChatEvent, ChatMessage, ChatSocket, StoredMessage } from "./api";
+import { usePaged } from "./usePaged";
+
+const CHAT_PAGE = 30;
 
 export interface ToolActivity {
   id: string;
@@ -62,7 +65,7 @@ export function toUiMessages(stored: StoredMessage[]): UiMessage[] {
 }
 
 export function useChat() {
-  const [conversations, setConversations] = useState<ConversationInfo[]>([]);
+  const list = usePaged((limit, offset) => api.conversations(limit, offset), CHAT_PAGE, []);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const conversation = useRef<string | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
@@ -82,9 +85,7 @@ export function useChat() {
     setConversationId(id);
   };
 
-  const refreshList = useCallback(() => {
-    api.conversations().then(setConversations).catch(() => undefined);
-  }, []);
+  const refreshList = list.reload;
 
   const update = (next: UiMessage[]) => {
     history.current = next;
@@ -160,7 +161,6 @@ export function useChat() {
   };
 
   useEffect(() => {
-    refreshList();
     const s = new ChatSocket(onEvent);
     socket.current = s;
     return () => s.close();
@@ -227,7 +227,10 @@ export function useChat() {
     busy,
     isStopping,
     approvals,
-    conversations,
+    conversations: list.items,
+    hasMoreConversations: list.hasMore,
+    loadingConversations: list.loading,
+    loadMoreConversations: list.loadMore,
     conversationId,
     send,
     respond,
