@@ -380,3 +380,51 @@ def test_tool_mode_api_validation_and_auth():
     assert client.put("/api/tool-mode", headers=AUTH, json=body).status_code == 404
     assert client.put("/api/tool-mode", json=body).status_code == 401
     assert client.get("/api/tool-mode?provider=nope&model=m", headers=AUTH).status_code == 404
+
+
+# --- other models' own call markup (seen live with DeepSeek's DSML) ------------------------------
+
+DSML = (
+    "I'll list the folder. <｜｜DSML｜｜ calls>\n"
+    '<｜｜DSML｜｜ invoke name="files__read">\n'
+    '<｜｜DSML｜｜ parameter name="path" string="true">a.txt</｜｜DSML｜｜ parameter>\n'
+    "</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>"
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        DSML,
+        '<invoke name="files__read"><parameter name="path">a.txt</parameter></invoke>',
+        '<function_calls><invoke name="files__read"></invoke></function_calls>',
+        '[TOOL_CALLS] [{"name": "files__read", "arguments": {"path": "a.txt"}}]',
+        '<function=files__read>{"path": "a.txt"}</function>',
+    ],
+)
+def test_foreign_call_markup_is_an_unreadable_call_not_an_answer(text):
+    p = parse_calls(text, KNOWN)
+    assert not p.calls and p.errors == ["it used a different call format"]
+    assert "invoke" not in p.text and "TOOL_CALLS" not in p.text and "DSML" not in p.text
+
+
+def test_ordinary_text_about_calls_is_still_an_answer():
+    for text in ("Use the tool_call format.", "if x < 5 and y > 2 then [done]", "<b>bold</b> text"):
+        p = parse_calls(text, KNOWN)
+        assert not p.errors and p.text == text
+
+
+async def test_a_model_that_answers_in_its_own_format_is_corrected_and_retried():
+    model = TextModel(DSML, call_text(path="a.txt"))
+    shown, done = await run_turn(model)
+    assert "DSML" not in shown  # the markup never reached the user
+    assert done.tool_calls[0].arguments == {"path": "a.txt"}
+    assert "different call format" in model.sent[1]["messages"][-1].content
+
+
+async def test_stream_filter_hides_foreign_markup_and_does_not_stall_normal_text():
+    flt = StreamFilter()
+    out = "".join(flt.feed(c) for c in ["Sure, x ", "< 5 holds. ", "Now <｜｜DS", "ML｜｜ calls> junk"])
+    assert out == "Sure, x < 5 holds. Now " and flt.flush() == ""
+    flt = StreamFilter()
+    assert flt.feed("done [") + flt.flush() == "done ["  # a lone bracket is released at the end

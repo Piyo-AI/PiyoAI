@@ -101,6 +101,13 @@ _FENCE = re.compile(r"```(?:json|JSON)?\s*(\{.*?\})\s*```", re.S)
 _NAME = re.compile(r'["\']?(?:name|tool)["\']?\s*:\s*["\']([\w.\-]+)["\']')
 _NAME_KEYS = ("name", "tool", "function")
 _ARG_KEYS = ("arguments", "args", "parameters", "input")
+# Other models' own call markup (DeepSeek's <｜DSML｜…>, Mistral's [TOOL_CALLS], <invoke>, <function=…>).
+# A reply with this and no <tool_call> block is a call we cannot read, not an answer to show.
+_FOREIGN_START = re.compile(
+    r"<[｜|]|<\s*(?:antml:)?(?:invoke|function_calls?|tool_calls?)\b|<function=|\[TOOL_CALLS?\]",
+    re.I,
+)
+_FOREIGN_NAME = re.compile(r"""\bname\s*=\s*["']([\w.\-]+)["']""")
 
 
 def _load(raw: str) -> object:
@@ -170,14 +177,24 @@ def parse_calls(text: str, known: set[str]) -> Parsed:
         if call.name in known:
             parsed.calls.append(call)
             parsed.text = parsed.text.replace(f.group(0), "").strip()
+    if not parsed.calls and (m := _FOREIGN_START.search(text)):
+        parsed.errors.append("it used a different call format")
+        if name := _FOREIGN_NAME.search(text, m.start()):
+            parsed.bad_name = name.group(1)
+        parsed.text = text[: m.start()].strip()
     return parsed
 
 
 # --- Streaming -------------------------------------------------------------------------------
 
 
+_HIDE_FROM = re.compile(f"{re.escape('<tool_call')}|{_FOREIGN_START.pattern}", re.I)
+_HOLD_BACK = 24  # a marker not yet complete is at most this long
+
+
 class StreamFilter:
-    """Passes text through but holds back everything from the first `<tool_call` on."""
+    """Passes text through but holds back everything from the first call marker on: `<tool_call`
+    or another model's call markup, which `parse_calls` treats as a call we cannot read."""
 
     def __init__(self) -> None:
         self._buf = ""
@@ -187,17 +204,15 @@ class StreamFilter:
         if self._hidden:
             return ""
         self._buf += chunk
-        i = self._buf.find(OPEN)
-        if i != -1:
+        if m := _HIDE_FROM.search(self._buf):
             self._hidden = True
-            out, self._buf = self._buf[:i], ""
+            out, self._buf = self._buf[: m.start()], ""
             return out
-        # Keep a tail that could still turn into the opening tag.
+        # Keep a short tail that could still turn into a marker.
+        starts = [i for i in (self._buf.rfind("<"), self._buf.rfind("[")) if i != -1]
         keep = 0
-        for n in range(min(len(OPEN) - 1, len(self._buf)), 0, -1):
-            if OPEN.startswith(self._buf[-n:]):
-                keep = n
-                break
+        if starts and len(self._buf) - max(starts) < _HOLD_BACK:
+            keep = len(self._buf) - max(starts)
         out, self._buf = self._buf[: len(self._buf) - keep], self._buf[len(self._buf) - keep :]
         return out
 
