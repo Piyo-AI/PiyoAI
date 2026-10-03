@@ -6,12 +6,13 @@ import asyncio
 import secrets
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
 from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
+from piyo.config import data_dir
 from piyo.config.browser_rules import BrowserRules
 from piyo.config.folders import ApprovedFolders, FolderGrant
 from piyo.config.model_limits import ContextLimits, ModelLimits
@@ -36,6 +37,7 @@ from piyo.models.prompt_tools import native_with_fallback, prompt_turn
 from piyo.models.turn import Message, stream_turn
 from piyo.safety import ApprovalRequest, PermissionGate
 from piyo.skills import SkillRegistry
+from piyo.skills.install import InstallError, SkillInstaller, read_meta
 from piyo.store import (
     AuditStore,
     ConversationStore,
@@ -85,6 +87,28 @@ class SkillOut(BaseModel):
     secrets: list[str] = []
     model_needs: dict = {}  # what the skill needs from the model: vision, min_context
     model_issues: list[str] = []  # why the model named in the request can't run it; empty when fine
+    removable: bool = False  # installed by the user (not built in), so it can be uninstalled
+    install_source: str | None = None  # where an installed skill came from
+    verified: bool = False  # from the signed catalog; installs from a file never are
+
+
+class InstallPreviewOut(BaseModel):
+    token: str
+    name: str
+    version: str
+    description: str
+    author: str | None
+    source: str
+    permissions: list[str]
+    files: list[str]
+    installed_version: str | None
+    added: list[str]  # permissions the user has to approve now
+    verified: bool
+
+
+class InstallCommitIn(BaseModel):
+    token: str
+    approved: list[str]
 
 
 class SkillEnabledIn(BaseModel):
@@ -825,6 +849,8 @@ def create_app(
                     secrets=sk.manifest.requires.secrets,
                     model_needs=sk.manifest.requires.model.model_dump(exclude_defaults=True),
                     model_issues=model_issues(sk.manifest.requires.model, caps) if caps else [],
+                    removable=sk.source == "user",
+                    install_source=read_meta(sk.path).get("source") if sk.source == "user" else None,
                 )
                 for sk in skills.list()
             ],
@@ -840,6 +866,41 @@ def create_app(
         if path.stat().st_size > MAX_SETUP_BYTES:
             raise HTTPException(status_code=413, detail="The setup guide is too large to show.")
         return SetupOut(name=name, markdown=path.read_text(encoding="utf-8", errors="replace"))
+
+    def skill_installer() -> SkillInstaller:
+        return SkillInstaller(
+            skills.user_dir, data_dir() / "install", {s.manifest.name for s in skills.list() if s.source == "builtin"}
+        )
+
+    @app.post("/api/skills/install/preview", dependencies=auth)
+    async def preview_skill_install(request: Request) -> InstallPreviewOut:
+        data = await request.body()  # the raw .piyoskill zip
+        try:
+            return InstallPreviewOut(**vars(skill_installer().stage_zip(data)))
+        except InstallError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.post("/api/skills/install", dependencies=auth, status_code=201)
+    def install_skill(body: InstallCommitIn) -> dict:
+        try:
+            skill = skill_installer().commit(body.token, body.approved)
+        except InstallError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        skills.reload()
+        return {"name": skill.manifest.name, "version": skill.manifest.version}
+
+    @app.delete("/api/skills/install/{token}", dependencies=auth, status_code=204)
+    def cancel_skill_install(token: str) -> None:
+        skill_installer().cancel(token)
+
+    @app.delete("/api/skills/{name}", dependencies=auth, status_code=204)
+    def uninstall_skill(name: str) -> None:
+        try:
+            skill_installer().uninstall(name)
+        except InstallError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        skills.reload()
+        skills.disabled = skill_state.set_enabled(name, True)  # leave no switch behind
 
     @app.put("/api/skills/{name}", dependencies=auth, status_code=204)
     def set_skill_enabled(name: str, body: SkillEnabledIn) -> None:
