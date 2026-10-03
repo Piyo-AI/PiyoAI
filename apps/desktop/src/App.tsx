@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import { api, inTauri, ModelInfo, onCoreExit, Provider, resetConnection, restartCore } from "./api";
 import { ChatList } from "./ChatList";
@@ -10,6 +10,7 @@ import { useSetupNeeded } from "./useSetupNeeded";
 import { Tasks } from "./Tasks";
 import { ApprovalCard, ToolChip } from "./Tools";
 import { useChat } from "./useChat";
+import { useStickToBottom } from "./useStickToBottom";
 
 const store = {
   get: (k: string) => {
@@ -52,7 +53,6 @@ export default function App() {
     messages, busy, isStopping, approvals, conversations, hasMoreConversations, loadingConversations,
     loadMoreConversations, conversationId, send, respond, stop, newChat, open, remove,
   } = useChat();
-  const bottom = useRef<HTMLDivElement>(null);
 
   const provider = providers.find((p) => p.id === providerId);
 
@@ -140,9 +140,15 @@ export default function App() {
     if (provider?.default_model && !model) setModel(provider.default_model);
   }, [provider?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Follow the newest content (streamed text, tool chips, approval cards) unless the reader scrolled up.
+  const scroll = useStickToBottom<HTMLElement, HTMLDivElement>([messages, approvals]);
+  const userMessages = messages.filter((m) => m.role === "user").length;
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    scroll.stick(); // sending always brings you back to the bottom
+  }, [userMessages]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    scroll.stick(); // a different conversation starts at its newest message
+  }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasPricing = models.some((m) => m.free !== null);
   const shownModels = freeOnly ? models.filter((m) => m.free) : models;
@@ -238,7 +244,8 @@ export default function App() {
         />
       </aside>
       <div className="pane">
-      <main className="chat">
+      <main className="chat" ref={scroll.ref} onScroll={scroll.onScroll}>
+        <div ref={scroll.contentRef}>
         {coreError && (
           <div className="banner error">
             Can't reach the Piyo core: {coreError}{" "}
@@ -273,7 +280,7 @@ export default function App() {
         {approvals.map((a) => (
           <ApprovalCard key={a.id} approval={a} onAnswer={(ok) => respond(a.id, ok)} />
         ))}
-        <div ref={bottom} />
+        </div>
       </main>
 
       {setup.needed.map((n) => (
