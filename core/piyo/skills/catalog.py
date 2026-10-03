@@ -86,9 +86,9 @@ class CatalogClient:
         except httpx.HTTPError:
             raise CatalogError("Could not reach the skill catalog. Check your internet connection.") from None
 
-    async def _resolve(self) -> str:
+    async def _resolve(self, ref: str | None = None) -> str:
         data = await self._get(
-            f"https://api.github.com/repos/{self.repo}/commits/{self.branch}",
+            f"https://api.github.com/repos/{self.repo}/commits/{ref or self.branch}",
             64 * 1024,
             accept="application/vnd.github.sha",
         )

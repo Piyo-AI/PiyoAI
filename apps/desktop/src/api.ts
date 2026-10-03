@@ -270,6 +270,13 @@ export interface SkillVersion {
   reason: string;
 }
 
+export interface GitStage {
+  preview: InstallPreview | null;
+  /** The address holds several skills: pick one, then ask again with `folder` and this `commit`. */
+  choose: string[];
+  commit: string | null;
+}
+
 export interface CatalogEntry {
   name: string;
   version: string;
@@ -598,6 +605,8 @@ export const api = {
   catalog: () => request<Catalog>("GET", "/api/catalog"),
   stageCatalogSkill: (name: string, commit: string) =>
     request<InstallPreview>("POST", "/api/catalog/install", { name, commit }),
+  stageGitSkill: (url: string, folder?: string, commit?: string) =>
+    request<GitStage>("POST", "/api/skills/install/git", { url, folder, commit }),
   previewSkillInstall: (zip: ArrayBuffer) => upload<InstallPreview>("/api/skills/install/preview", zip),
   installSkill: (token: string, approved: string[]) =>
     request<{ name: string; version: string }>("POST", "/api/skills/install", { token, approved }),

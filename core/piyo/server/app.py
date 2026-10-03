@@ -41,6 +41,7 @@ from piyo.skills import SkillError, SkillRegistry
 from piyo.scheduler import RuleError, RunResult, Scheduler, SchedulerStore, describe
 from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
 from piyo.skills.editor import TEMPLATE, SkillEditor
+from piyo.skills.git_source import GitChoice, stage_git
 from piyo.skills.install import InstallError, SkillInstaller, read_meta
 from piyo.skills.learn import draft_from_chat, refine_from_chat, worth_a_skill
 from piyo.skills.runner import ScriptRunner, secret_name
@@ -126,6 +127,18 @@ class CatalogOut(BaseModel):
     commit: str  # pass back to /api/catalog/install so the listing and the download agree
     skills: list[CatalogEntryOut]
     skipped: int
+
+
+class GitInstallIn(BaseModel):
+    url: str
+    folder: str | None = None  # which skill, when the address holds several
+    commit: str | None = None  # pin the commit a previous answer reported
+
+
+class GitStageOut(BaseModel):
+    preview: InstallPreviewOut | None = None
+    choose: list[str] = []  # skill folders to pick from; ask again with `folder` and `commit`
+    commit: str | None = None
 
 
 class CatalogInstallIn(BaseModel):
@@ -1145,6 +1158,20 @@ def create_app(
             return InstallPreviewOut(**vars(await catalog_client.stage(skill_installer(), body.name, body.commit)))
         except (CatalogError, InstallError) as e:
             raise HTTPException(status_code=502 if isinstance(e, CatalogError) else 400, detail=str(e)) from None
+
+    @app.post("/api/skills/install/git", dependencies=auth)
+    async def stage_git_skill(body: GitInstallIn) -> GitStageOut:
+        """Download a skill from a GitHub address (pinned to a commit) for review, like a zip."""
+        try:
+            found = await stage_git(
+                lambda repo: CatalogClient(repo, transport=catalog_client._transport),
+                skill_installer(), body.url, body.folder, body.commit,
+            )
+        except (CatalogError, InstallError) as e:
+            raise HTTPException(status_code=502 if isinstance(e, CatalogError) else 400, detail=str(e)) from None
+        if isinstance(found, GitChoice):
+            return GitStageOut(choose=found.folders, commit=found.commit)
+        return GitStageOut(preview=InstallPreviewOut(**vars(found)))
 
     @app.post("/api/skills/install", dependencies=auth, status_code=201)
     def install_skill(body: InstallCommitIn) -> dict:

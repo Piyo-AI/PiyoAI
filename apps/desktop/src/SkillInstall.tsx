@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { api, Catalog, InstallPreview } from "./api";
+import { api, Catalog, GitStage, InstallPreview } from "./api";
 
 /** "tool:gmail.send" -> a sentence the user can judge. */
 export function describePermission(label: string): string {
@@ -23,6 +23,19 @@ export function describePermission(label: string): string {
   }
 }
 
+/** True when version `a` is newer than `b` (dotted numbers; anything else compares as text). */
+function newer(a: string, b: string): boolean {
+  const pa = a.split(".").map((x) => parseInt(x, 10));
+  const pb = b.split(".").map((x) => parseInt(x, 10));
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (Number.isNaN(x) || Number.isNaN(y)) return a !== b && a > b;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
 export function SkillInstall({ onChange }: { onChange: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<InstallPreview | null>(null);
@@ -30,6 +43,39 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  const [gitOpen, setGitOpen] = useState(false);
+  const [gitUrl, setGitUrl] = useState("");
+  const [gitChoice, setGitChoice] = useState<GitStage | null>(null);
+  const [updates, setUpdates] = useState<Catalog["skills"]>([]);
+
+  // Quietly look for newer versions of installed catalog skills (no error if offline).
+  useEffect(() => {
+    api
+      .catalog()
+      .then((c) => {
+        setCatalog(c);
+        setUpdates(c.skills.filter((e) => !e.builtin && e.installed_version !== null && newer(e.version, e.installed_version)));
+      })
+      .catch(() => {});
+  }, []);
+
+  const stageGit = async (folder?: string) => {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await api.stageGitSkill(gitUrl.trim(), folder, folder ? gitChoice?.commit ?? undefined : undefined);
+      if (res.preview) {
+        setGitChoice(null);
+        setPreview(res.preview);
+      } else {
+        setGitChoice(res);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const browse = async () => {
     setError(null);
@@ -108,7 +154,58 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
       </button>{" "}
       <button type="button" className="ghost" disabled={busy || preview !== null} onClick={browsing ? () => setBrowsing(false) : browse}>
         {browsing ? "Hide catalog" : "Browse skills"}
+      </button>{" "}
+      <button type="button" className="ghost" disabled={busy || preview !== null} onClick={() => setGitOpen(!gitOpen)}>
+        From GitHub
       </button>
+      {updates.length > 0 && !preview && (
+        <div className="banner warn" role="status">
+          <p>
+            {updates.length === 1 ? "A newer version is available: " : "Newer versions are available: "}
+            {updates.map((u) => `${u.name} ${u.installed_version} → ${u.version}`).join(", ")}
+          </p>
+          <div className="inline">
+            {updates.map((u) => (
+              <button key={u.name} type="button" disabled={busy} onClick={() => review(u.name)}>
+                Review {u.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {gitOpen && !preview && (
+        <div className="install-review">
+          <p className="hint">
+            Paste a GitHub address: the repository, or a link to a branch or folder. Piyo downloads one exact commit,
+            shows you what it asks for, and installs nothing until you approve. It is not checked by anyone.
+          </p>
+          <div className="memory-add">
+            <input
+              value={gitUrl}
+              onChange={(e) => setGitUrl(e.target.value)}
+              placeholder="https://github.com/owner/repo"
+              aria-label="GitHub address"
+            />
+            <button type="button" disabled={busy || !gitUrl.trim()} onClick={() => stageGit()}>
+              Look up
+            </button>
+          </div>
+          {gitChoice && gitChoice.choose.length > 0 && (
+            <>
+              <p>This address has several skills. Which one?</p>
+              <ul className="permissions">
+                {gitChoice.choose.map((f) => (
+                  <li key={f}>
+                    <button type="button" className="ghost" disabled={busy} onClick={() => stageGit(f)}>
+                      {f}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
       {error && <p className="error">{error}</p>}
       {browsing && catalog && !preview && (
         <ul className="providers catalog">

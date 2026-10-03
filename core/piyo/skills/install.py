@@ -138,7 +138,7 @@ class SkillInstaller:
         except zipfile.BadZipFile:
             raise InstallError("That file is not a valid zip.") from None
         with zf:
-            if subpath:
+            if subpath is not None:
                 entries, root = self._subpath_entries(zf, subpath)
             else:
                 entries = self._checked_entries(zf)
@@ -183,7 +183,7 @@ class SkillInstaller:
 
     def _subpath_entries(self, zf: zipfile.ZipFile, subpath: str) -> tuple[list[zipfile.ZipInfo], str]:
         want = PurePosixPath(subpath).parts
-        if not want or ".." in want or subpath.startswith(("/", "\\")):
+        if ".." in want or subpath.startswith(("/", "\\")):
             raise InstallError(f"Unsafe skill path: {subpath!r}.")
         picked, tops = [], set()
         for info in zf.infolist():
@@ -195,7 +195,7 @@ class SkillInstaller:
                 tops.add(parts[0])
         if len(tops) != 1:
             raise InstallError(f"{subpath!r} was not found in the download.")
-        root = f"{next(iter(tops))}/{'/'.join(want)}"
+        root = "/".join([next(iter(tops)), *want])
         entries = self._checked_entries_of(picked)
         if not any(i.filename == f"{root}/SKILL.md" for i in entries):
             raise InstallError(f"{subpath!r} has no SKILL.md.")
