@@ -918,3 +918,31 @@ button.stop:disabled {
 .providers.accounts {
   margin-bottom: 12px;
 }
+
+.browser-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.working-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent, #4f8cff);
+  animation: working-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes working-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.limits textarea {
+  width: min(360px, 100%);
+}

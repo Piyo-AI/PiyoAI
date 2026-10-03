@@ -156,7 +156,9 @@ class Agent:
                 yield ToolStarted(call.id, call.name, call.arguments)
                 started = time.monotonic()
                 before = set(ctx.active_skills)
+                ctx.take_images()  # nothing left over from an earlier call
                 output, is_error = await self._execute(call, ctx, done.text)
+                images = [] if is_error else ctx.take_images()
                 if self.log:
                     self.log.step(
                         "tool",
@@ -173,7 +175,9 @@ class Agent:
                         for name in loaded:
                             self.log.step("skill", name=name)
                 messages.append(
-                    Message(role="tool", content=output, tool_call_id=call.id, is_error=is_error)
+                    Message(
+                        role="tool", content=output, tool_call_id=call.id, is_error=is_error, images=images
+                    )
                 )
                 yield ToolFinished(call.id, call.name, output, is_error)
         yield Finished("step_limit", sorted(ctx.active_skills))

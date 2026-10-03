@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
+from piyo.config.browser_rules import BrowserRules
 from piyo.config.folders import ApprovedFolders, FolderGrant
 from piyo.config.model_limits import ContextLimits, ModelLimits
 from piyo.config.model_prices import ModelPrices, Price
@@ -46,6 +47,7 @@ from piyo.store import (
 )
 from piyo.tools import ToolRegistry, core_tools
 from piyo.tools import search as search_mod
+from piyo.tools.browser import BrowserInstaller, BrowserSession, PlaywrightSession, browser_tools
 from piyo.tools.calendar import calendar_tools
 from piyo.tools.files import file_tools
 from piyo.tools.gmail import gmail_tools
@@ -151,6 +153,34 @@ class ModelCapabilitiesOut(BaseModel):
     vision: VisionOut
     context: ContextLimitOut
     output: OutputLimitOut
+
+
+class BrowserOut(BaseModel):
+    visible: bool
+    running: bool
+    url: str
+
+
+class BrowserInstallOut(BaseModel):
+    state: str  # unknown | missing | installed | installing | failed
+    percent: int
+    message: str
+
+
+class BrowserRulesIn(BaseModel):
+    allow: list[str] | None = None
+    deny: list[str] | None = None
+    max_pages: int | None = None
+
+
+class BrowserRulesOut(BaseModel):
+    allow: list[str]
+    deny: list[str]
+    max_pages: int
+
+
+class BrowserIn(BaseModel):
+    visible: bool
 
 
 class RunSettingsIn(BaseModel):
@@ -325,8 +355,13 @@ def create_app(
     turn_fn=stream_turn,
     store: ConversationStore | None = None,
     google: GoogleAuth | None = None,
+    browser: BrowserSession | None = None,
+    browser_installer: BrowserInstaller | None = None,
 ) -> FastAPI:
     google = google or GoogleAuth()
+    browser_rules = BrowserRules()
+    browser = browser or PlaywrightSession(rules=browser_rules)
+    installer = browser_installer or BrowserInstaller()
     registry = registry or ProviderRegistry()
     skills = skills or SkillRegistry()
     skill_state = SkillState()
@@ -353,6 +388,7 @@ def create_app(
         core_tools()
         + file_tools(folders)
         + web_tools()
+        + browser_tools(browser)
         + search_tools()
         + gmail_tools(google)
         + google_account_tools(google)
@@ -360,6 +396,8 @@ def create_app(
         + weather_tools()
     )
     app = FastAPI(title="Piyo Core", version=__version__)
+    app.router.add_event_handler("shutdown", browser.close)
+    app.router.add_event_handler("shutdown", installer.close)
     app.state.tools = tools
     app.add_middleware(
         CORSMiddleware,
@@ -711,6 +749,47 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e)) from None
         return vision_info(body.provider, model)
 
+    @app.get("/api/browser", dependencies=auth)
+    def get_browser() -> BrowserOut:
+        return BrowserOut(**vars(browser.status()))
+
+    @app.put("/api/browser", dependencies=auth)
+    async def set_browser(body: BrowserIn) -> BrowserOut:
+        try:
+            await browser.set_visible(body.visible)
+        except Exception as e:
+            detail = f"Could not change the browser: {type(e).__name__}"
+            raise HTTPException(status_code=500, detail=detail) from None
+        return BrowserOut(**vars(browser.status()))
+
+    @app.get("/api/browser/install", dependencies=auth)
+    async def get_browser_install() -> BrowserInstallOut:
+        return BrowserInstallOut(**vars(await installer.refresh()))
+
+    @app.post("/api/browser/install", dependencies=auth)
+    async def start_browser_install() -> BrowserInstallOut:
+        """The user pressed Install browser: this is the only thing that ever starts the download."""
+        status = await installer.refresh()
+        if status.state in ("installed", "installing"):
+            return BrowserInstallOut(**vars(status))
+        return BrowserInstallOut(**vars(installer.start()))
+
+    @app.get("/api/browser/rules", dependencies=auth)
+    def get_browser_rules() -> BrowserRulesOut:
+        return BrowserRulesOut(**vars(browser_rules.get()))
+
+    @app.put("/api/browser/rules", dependencies=auth)
+    def set_browser_rules(body: BrowserRulesIn) -> BrowserRulesOut:
+        try:
+            return BrowserRulesOut(**vars(browser_rules.update(**body.model_dump())))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.post("/api/browser/stop", dependencies=auth)
+    async def stop_browser() -> BrowserOut:
+        await browser.stop()
+        return BrowserOut(**vars(browser.status()))
+
     @app.get("/api/run-settings", dependencies=auth)
     def get_run_settings() -> RunSettingsOut:
         return RunSettingsOut(**vars(run_settings.get()))
@@ -830,6 +909,7 @@ def create_app(
         run: asyncio.Task | None = None
 
         current_log: RunLog | None = None  # the run in progress, for the approval hook
+        used_browser = False  # the run in progress called a browser tool: Stop then closes its pages
 
         async def approver(req: ApprovalRequest) -> bool:
             approved = await ask(req)
@@ -922,7 +1002,9 @@ def create_app(
             store.append(conv.id, [*history[len(conv.messages):], messages[-1]])
             saved_from = len(messages)
             saved = False
-            nonlocal current_log
+            nonlocal current_log, used_browser
+            used_browser = False
+            browser.begin_run()
             log = current_log = RunLog(
                 conv.id,
                 provider.id,
@@ -953,6 +1035,9 @@ def create_app(
                     if isinstance(event, Text):
                         await ws.send_json({"type": "delta", "text": event.text})
                     elif isinstance(event, ToolStarted):
+                        if event.name.startswith(("browser.", "browser__")):
+                            used_browser = True
+                            browser.set_working(True)
                         await ws.send_json(
                             {
                                 "type": "tool_start",
@@ -986,6 +1071,7 @@ def create_app(
                 save()
                 save_log("error", "The run ended unexpectedly.")
                 current_log = None
+                browser.set_working(False)
 
         async def run_agent(req: ChatRequest, provider: Provider) -> None:
             """Whatever goes wrong, the app must get an answer instead of waiting forever."""
@@ -1008,6 +1094,8 @@ def create_app(
                     if run and not run.done():
                         run.cancel()
                         await asyncio.gather(run, return_exceptions=True)
+                        if used_browser:
+                            await browser.stop()
                     # Always acknowledge, even when the run had just finished, so the app unlocks.
                     await ws.send_json({"type": "done", "reason": "cancelled"})
                 elif kind == "chat":

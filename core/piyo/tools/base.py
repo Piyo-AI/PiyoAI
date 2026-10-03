@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from piyo.models.capabilities import ModelCaps
-from piyo.models.turn import ToolSpec
+from piyo.models.turn import Image, ToolSpec
 
 if TYPE_CHECKING:
     from piyo.skills import SkillRegistry
@@ -33,6 +33,16 @@ class RunContext:
     model_caps: ModelCaps | None = None  # what the selected model can do; None skips the check
     # Says why an integration a skill needs isn't usable (not connected, expired), None when it is.
     integration_issue: Callable[[str], str | None] | None = None
+
+    # Pictures tools attached during the current call; the loop moves them onto the tool result message.
+    pending_images: list[Image] = field(default_factory=list)
+
+    def attach_image(self, data: str, media_type: str = "image/jpeg") -> None:
+        self.pending_images.append(Image(media_type=media_type, data=data))
+
+    def take_images(self) -> list[Image]:
+        images, self.pending_images = self.pending_images, []
+        return images
 
     def granted_tools(self) -> set[str]:
         """Tools unlocked by the skills loaded so far (union of their `requires.tools`)."""

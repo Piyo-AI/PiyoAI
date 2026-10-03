@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 
 import { api, ApiStyle, FolderEntry, inTauri, pickFolder, Provider, RunSettings, SkillInfo } from "./api";
+import { BrowserSettings } from "./BrowserSettings";
 import { GoogleConnection } from "./GoogleConnection";
 
 interface Props {
@@ -8,11 +9,13 @@ interface Props {
   onChanged: () => void;
   onClose: () => void;
   onSetup: (skill: string) => void; // open a skill's setup wizard
+  /** Changes when the setup wizard opens or closes, so the skill list is read again after setup changed something. */
+  refreshKey?: unknown;
 }
 
-type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "limits";
+type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "browser" | "limits";
 
-export function Settings({ providers, onChanged, onClose, onSetup }: Props) {
+export function Settings({ providers, onChanged, onClose, onSetup, refreshKey }: Props) {
   const [page, setPage] = useState<Page>("providers");
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +75,9 @@ export function Settings({ providers, onChanged, onClose, onSetup }: Props) {
             <button className={`nav-item ${page === "skills" ? "active" : ""}`} onClick={() => go("skills")}>
               Skills
             </button>
+            <button className={`nav-item ${page === "browser" ? "active" : ""}`} onClick={() => go("browser")}>
+              Browser
+            </button>
             <button className={`nav-item ${page === "limits" ? "active" : ""}`} onClick={() => go("limits")}>
               Limits
             </button>
@@ -100,7 +106,8 @@ export function Settings({ providers, onChanged, onClose, onSetup }: Props) {
             )}
             {page === "web-search" && <WebSearch />}
             {page === "folders" && <Folders />}
-            {page === "skills" && <Skills onSetup={onSetup} />}
+            {page === "skills" && <Skills onSetup={onSetup} refreshKey={refreshKey} />}
+            {page === "browser" && <BrowserSettings />}
             {page === "limits" && <Limits />}
           </div>
         </div>
@@ -109,7 +116,7 @@ export function Settings({ providers, onChanged, onClose, onSetup }: Props) {
   );
 }
 
-function Skills({ onSetup }: { onSetup: (skill: string) => void }) {
+function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; refreshKey?: unknown }) {
   const [skills, setSkills] = useState<SkillInfo[] | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -124,7 +131,7 @@ function Skills({ onSetup }: { onSetup: (skill: string) => void }) {
       .catch((e) => setError((e as Error).message));
   useEffect(() => {
     load();
-  }, []);
+  }, [refreshKey]);
 
   const toggle = async (name: string, enabled: boolean) => {
     setError(null);

@@ -14,6 +14,7 @@ from piyo.models.turn import Message, ToolSpec
 
 # Short results (errors, "sent") are cheaper to keep than to replace.
 KEEP_CHARS = 200
+IMAGE_TOKENS = 1500  # a screenshot costs about this much input, whatever its bytes
 
 
 def estimate_tokens(text: str) -> int:
@@ -23,7 +24,7 @@ def estimate_tokens(text: str) -> int:
 
 def message_tokens(m: Message) -> int:
     calls = sum(estimate_tokens(c.name + json.dumps(c.arguments)) for c in m.tool_calls)
-    return estimate_tokens(m.content) + calls + 4
+    return estimate_tokens(m.content) + calls + len(m.images) * IMAGE_TOKENS + 4
 
 
 def prompt_overhead(system: str, specs: list[ToolSpec]) -> int:
@@ -32,7 +33,7 @@ def prompt_overhead(system: str, specs: list[ToolSpec]) -> int:
 
 def _trimmed(m: Message) -> Message:
     note = f"[older tool output removed to save space, {len(m.content)} characters]"
-    return m.model_copy(update={"content": note})
+    return m.model_copy(update={"content": note, "images": []})
 
 
 def fit_context(messages: list[Message], budget: int) -> list[Message]:
@@ -48,7 +49,7 @@ def fit_context(messages: list[Message], budget: int) -> list[Message]:
             if total <= budget:
                 return
             m = out[i]
-            if m.role == "tool" and len(m.content) > KEEP_CHARS:
+            if m.role == "tool" and (len(m.content) > KEEP_CHARS or m.images):
                 new = _trimmed(m)
                 total -= message_tokens(m) - message_tokens(new)
                 out[i] = new

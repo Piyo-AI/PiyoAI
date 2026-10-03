@@ -168,9 +168,9 @@ Each skill ships a `SETUP.md`, rendered in-app as a step-by-step wizard. For Goo
 |---|---|---|
 | **Gmail** | Official Gmail API, OAuth 2.0 (desktop/loopback flow) | Read + draft by default; sending requires confirmation. Personal use works in Google Cloud "testing" mode; distributing publicly needs Google verification (Gmail scopes are *restricted* → security assessment). |
 | **Google Calendar** | Official Calendar API, same OAuth client | Read free/busy, create/update events with confirmation. |
-| **WhatsApp** | **WhatsApp Web in Piyo's own browser profile** (decided) | User scans the QR code once; session persists in the Piyo profile. |
+| **WhatsApp** | **Approach open** (2026-10-04: the WhatsApp Web automation was built, then withdrawn; see the Decision Log) | — |
 
-**WhatsApp implementation notes:**
+**WhatsApp implementation notes (from the withdrawn WhatsApp Web approach; kept as background for the next attempt):**
 - Read/summarize chats and draft replies automatically; **every send requires confirmation**.
 - Conservative rate limits and human-like pacing; no bulk messaging, no contacting non-contacts.
 - Automating WhatsApp Web is against WhatsApp's ToS and could lead to a ban — the skill's `SETUP.md` must state this clearly and the user opts in.
@@ -275,7 +275,7 @@ User-installed and learned skills live in the per-user app data directory (e.g. 
 
 ### Phase 3 — Browser + WhatsApp
 - [ ] Playwright browser tool with dedicated persistent Piyo profile; "show browser" for logins
-- [ ] `whatsapp` skill via WhatsApp Web: read/summarize, draft, send-with-confirmation, rate limits, health check
+- [ ] ~~`whatsapp` skill via WhatsApp Web~~ — dropped 2026-10-04; to be redone with a different approach (see Decision Log)
 
 ### Phase 4 — User-added skills, memory, scheduler
 - [ ] Skills page: install from `.piyoskill` file / Git URL, permission review, enable/disable, update with permission diff, uninstall
@@ -324,6 +324,7 @@ _None blocking right now. Add new ones here._
 | 2026-10-03 | Develop against a cloud API provider; keep local models supported | Dev speed/quality without losing the local option |
 | 2026-10-03 | First integrations: Gmail, Google Calendar, WhatsApp | User priority |
 | 2026-10-03 | WhatsApp via WhatsApp Web in Piyo's own browser profile; sends need confirmation | Only way to use personal accounts; ToS risk disclosed to user |
+| 2026-10-04 | WhatsApp via WhatsApp Web removed from the app (code, skills and UI deleted); WhatsApp will be redone with a different approach | Owner decision after the first live test; the ToS/ban risk and a fragile page were not worth keeping, and the approach is to be rethought. Lessons for the next attempt: the selectors and markup notes are in `docs/phase-3-browser-whatsapp.md`; carrier sites refuse a background browser, and WhatsApp Web was only ever tried in a visible window |
 | 2026-10-03 | Start browser-only (Playwright, dedicated profile); sandbox/VM deferred | Simplest safe starting point |
 | 2026-10-03 | Public release later; each skill ships a `SETUP.md` with user instructions | Users configure their own accounts/keys per skill |
 | 2026-10-03 | Users can add any skill — pre-built (file/Git/catalog) or self-built (editor/learned); skills are permission-scoped | Skills are the product's main extension point |

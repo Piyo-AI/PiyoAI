@@ -1,6 +1,7 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import { api, inTauri, ModelInfo, onCoreExit, Provider, resetConnection, restartCore } from "./api";
+import { BrowserBar } from "./BrowserBar";
 import { ChatList } from "./ChatList";
 import { ModelSettings } from "./ModelSettings";
 import { Settings } from "./Settings";
@@ -306,6 +307,7 @@ export default function App() {
           ))}
         </div>
       )}
+      <BrowserBar busy={busy} messages={messages} />
       <form className="composer" onSubmit={submit}>
         <textarea
           value={input}
@@ -334,6 +336,7 @@ export default function App() {
           onChanged={loadProviders}
           onClose={() => setShowSettings(false)}
           onSetup={setWizardSkill}
+          refreshKey={wizardSkill}
         />
       )}
       {wizardSkill && (

@@ -67,6 +67,26 @@ export interface ToolMode {
 }
 
 /** Per-run budget and the local-only switch. */
+export interface BrowserStatus {
+  /** The window is shown (not headless). */
+  visible: boolean;
+  running: boolean;
+  /** The current page, empty when none. */
+  url: string;
+}
+
+export interface BrowserRules {
+  allow: string[];
+  deny: string[];
+  max_pages: number;
+}
+
+export interface BrowserInstall {
+  state: "unknown" | "missing" | "installed" | "installing" | "failed";
+  percent: number;
+  message: string;
+}
+
 export interface RunSettings {
   max_steps: number;
   max_tokens: number;
@@ -405,6 +425,13 @@ export const api = {
   setSkillEnabled: (name: string, enabled: boolean) => request<void>("PUT", `/api/skills/${encodeURIComponent(name)}`, { enabled }),
   audit: (limit: number, offset: number) =>
     request<AuditReport>("GET", `/api/audit?limit=${limit}&offset=${offset}`),
+  browser: () => request<BrowserStatus>("GET", "/api/browser"),
+  setBrowserVisible: (visible: boolean) => request<BrowserStatus>("PUT", "/api/browser", { visible }),
+  browserRules: () => request<BrowserRules>("GET", "/api/browser/rules"),
+  setBrowserRules: (changes: Partial<BrowserRules>) => request<BrowserRules>("PUT", "/api/browser/rules", changes),
+  browserInstall: () => request<BrowserInstall>("GET", "/api/browser/install"),
+  installBrowser: () => request<BrowserInstall>("POST", "/api/browser/install"),
+  stopBrowser: () => request<BrowserStatus>("POST", "/api/browser/stop"),
   runSettings: () => request<RunSettings>("GET", "/api/run-settings"),
   setRunSettings: (changes: Partial<RunSettings>) => request<RunSettings>("PUT", "/api/run-settings", changes),
   models: (id: string) => request<ModelInfo[]>("GET", `/api/providers/${id}/models`),
