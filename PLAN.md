@@ -338,6 +338,7 @@ _None blocking right now. Add new ones here._
 | 2026-10-03 | Anonymous usage + crash reports, opt-in, no content ever collected | Privacy & trust |
 | 2026-10-03 | File tools: each approved folder has an "allow changes without asking" switch (off by default for new folders). When on, creating folders, moving files and writing new files there need no per-call approval; **deleting and overwriting always ask**, as does anything outside such a folder. A tool may compute its risk per call (`Tool.risk_for`); skills cannot | Asking for every move made organising a folder unusable; the user decides trust per folder, destructive actions stay gated |
 | 2026-10-03 | Web search: Brave Search API first (key in keychain, Settings section); `web.search` is `auto` and its results are fenced as untrusted. Other providers can be added behind the same tool | User chose Brave; simple JSON API with its own index |
+| 2026-10-03 | Conversations live in the core (SQLite, `piyo.db`); the app sends only the new message plus a conversation id, and an interrupted run is repaired so no tool call is left without a result | Tool results and loaded skills must survive between messages and restarts; one source of truth |
 | 2026-10-03 | Min OS: Windows 10 22H2+, macOS 12+, Ubuntu 22.04+/Debian 12+/Fedora 39+ | Tauri 2 / WebView requirements, broad reach |
 
 ## 13. Backlog / Ideas

@@ -14,7 +14,6 @@ from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
 from piyo.config.folders import ApprovedFolders, FolderGrant
 from piyo.models import (
-    ChatMessage,
     MissingApiKey,
     ModelInfo,
     Provider,
@@ -26,6 +25,7 @@ from piyo.models import (
 from piyo.models.turn import Message, stream_turn
 from piyo.safety import ApprovalRequest, PermissionGate
 from piyo.skills import SkillRegistry
+from piyo.store import ConversationStore, UnknownConversation, complete_tool_calls
 from piyo.tools import ToolRegistry, core_tools
 from piyo.tools import search as search_mod
 from piyo.tools.files import file_tools
@@ -86,7 +86,24 @@ class ChatRequest(BaseModel):
     type: str = "chat"
     provider: str
     model: str
-    messages: list[ChatMessage]
+    message: str
+    conversation_id: str | None = None
+
+
+class ConversationOut(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class ConversationDetail(ConversationOut):
+    messages: list[Message]
+    active_skills: list[str]
+
+
+class TitleIn(BaseModel):
+    title: str
 
 
 def grants_out(grants: list[FolderGrant]) -> FoldersIn:
@@ -100,9 +117,11 @@ def create_app(
     registry: ProviderRegistry | None = None,
     skills: SkillRegistry | None = None,
     turn_fn=stream_turn,
+    store: ConversationStore | None = None,
 ) -> FastAPI:
     registry = registry or ProviderRegistry()
     skills = skills or SkillRegistry()
+    store = store or ConversationStore()
     folders = ApprovedFolders()
     tools = ToolRegistry(core_tools() + file_tools(folders) + web_tools() + search_tools())
     app = FastAPI(title="Piyo Core", version=__version__)
@@ -221,6 +240,33 @@ def create_app(
             errors=skills.errors,
         )
 
+    def conversation_or_404(conversation_id: str):
+        try:
+            return store.get(conversation_id)
+        except UnknownConversation:
+            raise HTTPException(status_code=404, detail="unknown conversation") from None
+
+    @app.get("/api/conversations", dependencies=auth)
+    def list_conversations() -> list[ConversationOut]:
+        return [ConversationOut(**vars(c)) for c in store.list()]
+
+    @app.get("/api/conversations/{conversation_id}", dependencies=auth)
+    def get_conversation(conversation_id: str) -> ConversationDetail:
+        conv = conversation_or_404(conversation_id)
+        return ConversationDetail(**vars(conv))
+
+    @app.patch("/api/conversations/{conversation_id}", dependencies=auth)
+    def rename_conversation(conversation_id: str, body: TitleIn) -> ConversationOut:
+        conversation_or_404(conversation_id)
+        store.rename(conversation_id, body.title)
+        return ConversationOut(**{k: v for k, v in vars(store.get(conversation_id)).items()
+                                  if k in ConversationOut.model_fields})
+
+    @app.delete("/api/conversations/{conversation_id}", dependencies=auth, status_code=204)
+    def delete_conversation(conversation_id: str) -> None:
+        conversation_or_404(conversation_id)
+        store.delete(conversation_id)
+
     @app.websocket("/ws/chat")
     async def chat(ws: WebSocket) -> None:
         # Browsers can't set headers on WebSockets, so the token comes as a query param.
@@ -248,13 +294,38 @@ def create_app(
             finally:
                 pending.pop(approval_id, None)
 
-        async def run_agent(req: ChatRequest, provider: Provider) -> None:
+        async def run_conversation(req: ChatRequest, provider: Provider) -> None:
             agent = Agent(
                 provider, req.model, tools, skills, PermissionGate(approver), turn_fn=turn_fn
             )
-            messages = [Message(role=m.role, content=m.content) for m in req.messages]
+            if req.conversation_id:
+                try:
+                    conv = store.get(req.conversation_id)
+                except UnknownConversation:
+                    await ws.send_json(
+                        {"type": "error", "message": "That conversation no longer exists."}
+                    )
+                    return
+            else:
+                conv = store.get(store.create().id)
+                await ws.send_json({"type": "conversation", "id": conv.id})
+            # An earlier run that died mid-tool-call must not break the next message.
+            history = complete_tool_calls(conv.messages)
+            messages = [*history, Message(role="user", content=req.message)]
+            store.append(conv.id, [*history[len(conv.messages):], messages[-1]])
+            saved_from = len(messages)
+            saved = False
+
+            def save() -> None:
+                nonlocal saved
+                if saved:
+                    return
+                saved = True
+                store.append(conv.id, complete_tool_calls(messages[saved_from:]))
+                store.set_active_skills(conv.id, sorted(agent.active_skills))
+
             try:
-                async for event in agent.run(messages):
+                async for event in agent.run(messages, set(conv.active_skills)):
                     if isinstance(event, Text):
                         await ws.send_json({"type": "delta", "text": event.text})
                     elif isinstance(event, ToolStarted):
@@ -277,7 +348,19 @@ def create_app(
                             }
                         )
                     elif isinstance(event, Finished):
+                        save()  # before "done", so a list refresh right after it sees this run
                         await ws.send_json({"type": "done", "reason": event.reason})
+            except (WebSocketDisconnect, asyncio.CancelledError):
+                raise
+            except Exception as e:
+                await ws.send_json({"type": "error", "message": describe_error(provider, e)})
+            finally:
+                save()
+
+        async def run_agent(req: ChatRequest, provider: Provider) -> None:
+            """Whatever goes wrong, the app must get an answer instead of waiting forever."""
+            try:
+                await run_conversation(req, provider)
             except (WebSocketDisconnect, asyncio.CancelledError):
                 raise
             except Exception as e:

@@ -39,12 +39,33 @@ export interface ChatMessage {
 }
 
 export type ChatEvent =
+  | { type: "conversation"; id: string }
   | { type: "delta"; text: string }
   | { type: "tool_start"; id: string; name: string; arguments: Record<string, unknown> }
   | { type: "tool_end"; id: string; name: string; output: string; is_error: boolean }
   | { type: "approval_request"; id: string; tool: string; arguments: Record<string, unknown> }
   | { type: "done"; reason: "done" | "step_limit" | "truncated" | "cancelled" }
   | { type: "error"; message: string };
+
+export interface ConversationInfo {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StoredMessage {
+  role: "user" | "assistant" | "tool";
+  content: string;
+  tool_calls: { id: string; name: string; arguments: Record<string, unknown> }[];
+  tool_call_id: string | null;
+  is_error: boolean;
+}
+
+export interface ConversationDetail extends ConversationInfo {
+  messages: StoredMessage[];
+  active_skills: string[];
+}
 
 export interface SkillInfo {
   name: string;
@@ -116,6 +137,11 @@ export const api = {
   searchStatus: () => request<{ provider: string; has_key: boolean; docs_url: string }>("GET", "/api/search"),
   setSearchKey: (key: string) => request<void>("PUT", "/api/search/key", { key }),
   deleteSearchKey: () => request<void>("DELETE", "/api/search/key"),
+  conversations: () => request<ConversationInfo[]>("GET", "/api/conversations"),
+  conversation: (id: string) => request<ConversationDetail>("GET", `/api/conversations/${id}`),
+  renameConversation: (id: string, title: string) =>
+    request<ConversationInfo>("PATCH", `/api/conversations/${id}`, { title }),
+  deleteConversation: (id: string) => request<void>("DELETE", `/api/conversations/${id}`),
   folders: () => request<{ folders: FolderEntry[] }>("GET", "/api/folders"),
   setFolders: (folders: FolderEntry[]) => request<{ folders: FolderEntry[] }>("PUT", "/api/folders", { folders }),
   models: (id: string) => request<ModelInfo[]>("GET", `/api/providers/${id}/models`),
@@ -143,9 +169,10 @@ export class ChatSocket {
     return ws;
   }
 
-  async send(provider: string, model: string, messages: ChatMessage[]): Promise<void> {
+  /** Send one new message. The core keeps the history; a null conversation starts a new one. */
+  async send(provider: string, model: string, message: string, conversationId: string | null): Promise<void> {
     const ws = await this.open();
-    ws.send(JSON.stringify({ type: "chat", provider, model, messages }));
+    ws.send(JSON.stringify({ type: "chat", provider, model, message, conversation_id: conversationId }));
   }
 
   /** Answer an approval request from the core. */

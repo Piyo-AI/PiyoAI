@@ -40,7 +40,8 @@ export default function App() {
   const [coreError, setCoreError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [input, setInput] = useState("");
-  const { messages, busy, isStopping, approvals, send, respond, stop, clear } = useChat();
+  const { messages, busy, isStopping, approvals, conversations, conversationId, send, respond, stop, newChat, open, remove } =
+    useChat();
   const bottom = useRef<HTMLDivElement>(null);
 
   const provider = providers.find((p) => p.id === providerId);
@@ -171,7 +172,7 @@ export default function App() {
           )}
         </div>
         <div className="actions">
-          <button className="ghost" onClick={clear} disabled={busy || messages.length === 0}>
+          <button className="ghost" onClick={newChat} disabled={busy || messages.length === 0}>
             New chat
           </button>
           <button className="ghost" onClick={() => setShowSettings(true)}>
@@ -180,6 +181,26 @@ export default function App() {
         </div>
       </header>
 
+      <div className="body">
+      <aside className="history" aria-label="Past chats">
+        {conversations.length === 0 && <p className="muted">Your chats will appear here.</p>}
+        {conversations.map((c) => (
+          <div key={c.id} className={`history-item${c.id === conversationId ? " current" : ""}`}>
+            <button className="ghost title" onClick={() => open(c.id)} disabled={busy} title={c.title}>
+              {c.title}
+            </button>
+            <button
+              className="ghost danger"
+              aria-label={`Delete ${c.title}`}
+              disabled={busy}
+              onClick={() => window.confirm(`Delete "${c.title}"? This can't be undone.`) && remove(c.id)}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </aside>
+      <div className="pane">
       <main className="chat">
         {coreError && (
           <div className="banner error">
@@ -236,6 +257,8 @@ export default function App() {
           </button>
         )}
       </form>
+      </div>
+      </div>
 
       {showSettings && (
         <Settings providers={providers} onChanged={loadProviders} onClose={() => setShowSettings(false)} />

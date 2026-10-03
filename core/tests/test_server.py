@@ -71,15 +71,25 @@ def scripted(*turns):
     return turn_fn
 
 
-def chat_request(text="hi"):
-    return {"provider": "ollama", "model": "m", "messages": [{"role": "user", "content": text}]}
+def chat_request(text="hi", **extra):
+    return {"provider": "ollama", "model": "m", "message": text, **extra}
+
+
+def start_chat(ws, text="hi", **extra):
+    """Send a message. A new conversation announces itself first; return its id."""
+    ws.send_json(chat_request(text, **extra))
+    if "conversation_id" in extra:
+        return extra["conversation_id"]
+    event = ws.receive_json()
+    assert event["type"] == "conversation"
+    return event["id"]
 
 
 def test_ws_streams_reply():
     turn_fn = scripted([TextDelta("Hel"), TextDelta("lo"), TurnDone(text="Hello")])
     client = TestClient(server.create_app(TOKEN, turn_fn=turn_fn))
     with client.websocket_connect(f"/ws/chat?token={TOKEN}") as ws:
-        ws.send_json(chat_request())
+        start_chat(ws)
         events = [ws.receive_json() for _ in range(3)]
     assert events == [
         {"type": "delta", "text": "Hel"},
@@ -95,7 +105,7 @@ def test_ws_reports_tool_calls():
     )
     client = TestClient(server.create_app(TOKEN, turn_fn=turn_fn))
     with client.websocket_connect(f"/ws/chat?token={TOKEN}") as ws:
-        ws.send_json(chat_request())
+        start_chat(ws)
         start, end, done = (ws.receive_json() for _ in range(3))
     assert start == {"type": "tool_start", "id": "c1", "name": "current_time", "arguments": {}}
     assert end["type"] == "tool_end" and end["is_error"] is False and end["output"]
@@ -124,7 +134,7 @@ def test_ws_approval_round_trip(approve, tmp_path):
     server_tools = app.state.tools
     server_tools.register(Tool("mail.send", "Send", send, risk=Risk.CONFIRM))
     with TestClient(app).websocket_connect(f"/ws/chat?token={TOKEN}") as ws:
-        ws.send_json(chat_request())
+        start_chat(ws)
         events = []
         while True:
             event = ws.receive_json()
@@ -147,7 +157,7 @@ def test_ws_cancel_stops_the_run():
 
     client = TestClient(server.create_app(TOKEN, turn_fn=slow))
     with client.websocket_connect(f"/ws/chat?token={TOKEN}") as ws:
-        ws.send_json(chat_request())
+        start_chat(ws)
         assert ws.receive_json() == {"type": "delta", "text": "working"}
         ws.send_json({"type": "cancel"})
         assert ws.receive_json() == {"type": "done", "reason": "cancelled"}
@@ -176,8 +186,8 @@ def test_skills_endpoint(tmp_path):
 
 def test_ws_reports_missing_key(client):
     with client.websocket_connect(f"/ws/chat?token={TOKEN}") as ws:
-        ws.send_json({"provider": "openai", "model": "m",
-                      "messages": [{"role": "user", "content": "hi"}]})
+        ws.send_json({"provider": "openai", "model": "m", "message": "hi"})
+        assert ws.receive_json()["type"] == "conversation"
         event = ws.receive_json()
     assert event["type"] == "error" and "API key" in event["message"]
 
@@ -208,8 +218,8 @@ def test_ws_unreachable_local_provider_fails_fast(client):
     c = TestClient(server.create_app(TOKEN, reg))
     start = time.monotonic()
     with c.websocket_connect(f"/ws/chat?token={TOKEN}") as ws:
-        ws.send_json({"provider": "ollama", "model": "m",
-                      "messages": [{"role": "user", "content": "hi"}]})
+        ws.send_json({"provider": "ollama", "model": "m", "message": "hi"})
+        assert ws.receive_json()["type"] == "conversation"
         event = ws.receive_json()
     assert event["type"] == "error"
     assert "Couldn't connect to Ollama" in event["message"] and "Is it running?" in event["message"]

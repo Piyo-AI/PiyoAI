@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ChatEvent, ChatMessage, ChatSocket } from "./api";
+import { api, ChatEvent, ChatMessage, ChatSocket, ConversationInfo, StoredMessage } from "./api";
 
 export interface ToolActivity {
   id: string;
@@ -29,7 +29,36 @@ const NOTES: Partial<Record<string, string>> = {
   cancelled: "Stopped.",
 };
 
+/** Rebuild what the chat showed from the stored messages: tool results attach to their call. */
+export function toUiMessages(stored: StoredMessage[]): UiMessage[] {
+  const out: UiMessage[] = [];
+  let reply: UiMessage | null = null;
+  for (const m of stored) {
+    if (m.role === "user") {
+      out.push({ role: "user", content: m.content });
+      reply = null;
+    } else if (m.role === "assistant") {
+      if (!reply) {
+        reply = { role: "assistant", content: "", tools: [] };
+        out.push(reply);
+      }
+      if (m.content) reply.content += (reply.content ? "\n\n" : "") + m.content;
+      for (const c of m.tool_calls) reply.tools!.push({ id: c.id, name: c.name, arguments: c.arguments });
+    } else if (reply) {
+      const tool = reply.tools!.find((t) => t.id === m.tool_call_id);
+      if (tool) {
+        tool.output = m.content;
+        tool.isError = m.is_error;
+      }
+    }
+  }
+  return out;
+}
+
 export function useChat() {
+  const [conversations, setConversations] = useState<ConversationInfo[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const conversation = useRef<string | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -41,6 +70,15 @@ export function useChat() {
   const [isStopping, setIsStopping] = useState(false);
   const stopping = useRef(false);
   const stopTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const setConversation = (id: string | null) => {
+    conversation.current = id;
+    setConversationId(id);
+  };
+
+  const refreshList = useCallback(() => {
+    api.conversations().then(setConversations).catch(() => undefined);
+  }, []);
 
   const update = (next: UiMessage[]) => {
     history.current = next;
@@ -67,6 +105,9 @@ export function useChat() {
       return;
     }
     switch (e.type) {
+      case "conversation":
+        setConversation(e.id);
+        break;
       case "delta": {
         const gap = afterTool.current;
         afterTool.current = false;
@@ -94,6 +135,7 @@ export function useChat() {
         if (note) patchLast((m) => ({ ...m, note }));
         setApprovals([]);
         setBusy(false);
+        refreshList();
         break;
       }
       case "error": {
@@ -105,28 +147,26 @@ export function useChat() {
         update([...base, { role: "assistant", content: e.message, error: true }]);
         setApprovals([]);
         setBusy(false);
+        refreshList();
         break;
       }
     }
   };
 
   useEffect(() => {
+    refreshList();
     const s = new ChatSocket(onEvent);
     socket.current = s;
     return () => s.close();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = useCallback(async (text: string, provider: string, model: string) => {
-    // Only the text goes back to the core; tool activity is display-only.
-    const wire: ChatMessage[] = [
-      ...history.current.filter((m) => !m.error).map(({ role, content }) => ({ role, content })),
-      { role: "user", content: text },
-    ];
+    // The core owns the history: send only the new message and which conversation it belongs to.
     afterTool.current = false;
     update([...history.current, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setBusy(true);
     try {
-      await socket.current!.send(provider, model, wire);
+      await socket.current!.send(provider, model, text, conversation.current);
     } catch (err) {
       update([...history.current.slice(0, -1), { role: "assistant", content: (err as Error).message, error: true }]);
       setBusy(false);
@@ -149,7 +189,45 @@ export function useChat() {
     socket.current?.cancel().catch(finishStop);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const clear = useCallback(() => update([]), []);
+  const newChat = useCallback(() => {
+    update([]);
+    setConversation(null);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { messages, busy, isStopping, approvals, send, respond, stop, clear };
+  const open = useCallback(async (id: string) => {
+    try {
+      const detail = await api.conversation(id);
+      update(toUiMessages(detail.messages));
+      setConversation(id);
+      setApprovals([]);
+    } catch (err) {
+      update([{ role: "assistant", content: (err as Error).message, error: true }]);
+      setConversation(null);
+      refreshList();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const remove = useCallback(
+    async (id: string) => {
+      await api.deleteConversation(id).catch(() => undefined);
+      if (conversation.current === id) newChat();
+      refreshList();
+    },
+    [newChat, refreshList],
+  );
+
+  return {
+    messages,
+    busy,
+    isStopping,
+    approvals,
+    conversations,
+    conversationId,
+    send,
+    respond,
+    stop,
+    newChat,
+    open,
+    remove,
+  };
 }

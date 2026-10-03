@@ -37,6 +37,7 @@ until a newer release is confirmed to run.
 | `tools/` | `Tool`, `Risk`, `ToolRegistry`, `RunContext`; core tools `load_skill`, `current_time` |
 | `safety/` | `PermissionGate`: every tool call is authorised here before it runs; `untrusted.py` fences outside text |
 | `skills/` | `SKILL.md` parsing/validation (`manifest.py`) and discovery (`registry.py`) |
+| `store/` | `ConversationStore`: conversations, messages (tool calls included) and loaded skills in SQLite |
 | `server/` | FastAPI + WebSocket API for the app (`app.py`), launcher (`__main__.py`) |
 
 Desktop (`apps/desktop/src/`): `App.tsx` (chat shell), `useChat.ts` (chat state + socket events), `api.ts`
@@ -47,12 +48,14 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 
 - The app talks to the core over `127.0.0.1` only. HTTP uses `Authorization: Bearer <token>`; the WebSocket
   `/ws/chat?token=...` (browsers cannot set headers on WebSockets). The token is per launch.
-- **WebSocket protocol.** Client to core: `chat {provider, model, messages}`, `approval {id, approve}`,
-  `cancel`. Core to client: `delta`, `tool_start`, `tool_end`, `approval_request`, `done {reason}`, `error`.
+- **WebSocket protocol.** Client to core: `chat {provider, model, message, conversation_id?}`, `approval {id, approve}`,
+  `cancel`. Core to client: `conversation {id}` (when a new one was created), `delta`, `tool_start`, `tool_end`, `approval_request`, `done {reason}`, `error`.
   The core keeps reading while a run is in progress (that is how approve/cancel arrive). `cancel` is always
   answered with `done {reason: "cancelled"}`. Change both ends and `useChat.ts` together.
-- The app sends only plain text history each turn. Tool results and loaded skills are **not** yet remembered
-  between messages (a conversation store is planned, see docs Phase 1).
+- **The core owns the history** (`store/`, SQLite `piyo.db` in the data dir): the app sends only the new message
+  and a conversation id. Tool calls/results and loaded skills are saved with the conversation. A run is saved
+  before `done` is sent, and an interrupted run is repaired (`complete_tool_calls`) so no tool call is left
+  unanswered. Not yet: trimming old tool output before the context limit.
 - **Skills use progressive loading.** The prompt carries each enabled skill's name and description only; the
   model calls `load_skill` for the full body. Loading a skill unlocks exactly the tools in its
   `requires.tools`. Everything else is hidden from the model and rejected if called.
@@ -85,5 +88,5 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 
 Working: chat with streaming, providers/keys/model lists, agent loop with tool calling, permission gate with
 approval UI, stop/cancel, skill loading and per-skill tool grants, example skills `plan-my-day` and `downloads-organizer`.
-File tools (`files.*`, approved folders only; API `/api/folders`, Settings section to manage them, with a per-folder "no prompts for changes" switch). `web.fetch` (public hosts only, output fenced as untrusted; skill `web-reader`). `web.search` (Brave; key in keychain, `/api/search`; skill `web-research`). Not yet: conversation store, fallback for models without tool calling, sidecar launch in
+File tools (`files.*`, approved folders only; API `/api/folders`, Settings section to manage them, with a per-folder "no prompts for changes" switch). `web.fetch` (public hosts only, output fenced as untrusted; skill `web-reader`). `web.search` (Brave; key in keychain, `/api/search`; skill `web-research`). Not yet: fallback for models without tool calling, sidecar launch in
 production builds, CI, task log, integrations. See `../docs/README.md` for the ordered plan.

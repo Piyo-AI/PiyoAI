@@ -76,9 +76,14 @@ class Agent:
         self.max_steps = max_steps
         self.max_tokens = max_tokens
         self._turn = turn_fn
+        # Skills loaded so far in the current run; the caller saves them with the conversation.
+        self.active_skills: set[str] = set()
 
-    async def run(self, messages: list[Message]) -> AsyncIterator[AgentEvent]:
-        ctx = RunContext(skills=self.skills)
+    async def run(
+        self, messages: list[Message], active_skills: set[str] | None = None
+    ) -> AsyncIterator[AgentEvent]:
+        ctx = RunContext(skills=self.skills, active_skills=set(active_skills or ()))
+        self.active_skills = ctx.active_skills
         catalog = self.skills.catalog_prompt()
         for _ in range(self.max_steps):
             # Rebuilt each step: loading a skill unlocks more tools.
