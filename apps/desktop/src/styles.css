@@ -994,3 +994,18 @@ button.stop:disabled {
   width: 100%;
   margin: 10px 0;
 }
+
+.schedule-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.schedule-form h4 {
+  margin: 0;
+}

@@ -37,6 +37,7 @@ from piyo.models.prompt_tools import native_with_fallback, prompt_turn
 from piyo.models.turn import Message, stream_turn
 from piyo.safety import ApprovalRequest, PermissionGate
 from piyo.skills import SkillRegistry
+from piyo.scheduler import RuleError, RunResult, Scheduler, SchedulerStore, describe
 from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
 from piyo.skills.install import InstallError, SkillInstaller, read_meta
 from piyo.store import (
@@ -48,7 +49,7 @@ from piyo.store import (
     UnknownRun,
     complete_tool_calls,
 )
-from piyo.tools import ToolRegistry, core_tools
+from piyo.tools import RunContext, ToolRegistry, core_tools
 from piyo.tools import search as search_mod
 from piyo.tools.browser import BrowserInstaller, BrowserSession, PlaywrightSession, browser_tools
 from piyo.tools.calendar import calendar_tools
@@ -56,6 +57,7 @@ from piyo.tools.files import file_tools
 from piyo.store.memory import SENSITIVE_CATEGORIES, MemoryRefused, MemoryStore
 from piyo.tools.gmail import gmail_tools
 from piyo.tools.memory import memory_tools, profile_prompt
+from piyo.tools.schedule import schedule_tools
 from piyo.tools.google import google_account_tools
 from piyo.tools.search import search_tools
 from piyo.tools.weather import weather_tools
@@ -152,6 +154,64 @@ class MemorySettingsOut(BaseModel):
 
 class MemorySettingsIn(BaseModel):
     sensitive: bool
+
+
+class JobOut(BaseModel):
+    id: str
+    title: str
+    prompt: str
+    rule: dict
+    when: str  # the rule in words
+    provider: str
+    model: str
+    enabled: bool
+    next_run: str | None
+    last_run: str | None
+    last_status: str | None
+    last_conversation_id: str | None
+
+
+class JobIn(BaseModel):
+    title: str
+    prompt: str
+    rule: dict
+    provider: str
+    model: str
+
+
+class JobEdit(BaseModel):
+    title: str | None = None
+    prompt: str | None = None
+    rule: dict | None = None
+    enabled: bool | None = None
+
+
+class PendingOut(BaseModel):
+    id: str
+    job_id: str
+    job_title: str
+    conversation_id: str | None
+    tool: str
+    arguments: dict
+    summary: str
+    status: str
+    result: str | None
+    created_at: str
+
+
+class EventOut(BaseModel):
+    id: str
+    kind: str
+    title: str
+    body: str
+    job_id: str | None
+    conversation_id: str | None
+    created_at: str
+    read: bool
+
+
+class EventsRead(BaseModel):
+    ids: list[str] | None = None  # None marks everything read
 
 
 class InstallCommitIn(BaseModel):
@@ -430,6 +490,8 @@ def create_app(
     browser: BrowserSession | None = None,
     browser_installer: BrowserInstaller | None = None,
     memory: MemoryStore | None = None,
+    scheduler_store: SchedulerStore | None = None,
+    start_scheduler: bool = True,
     catalog: CatalogClient | None = None,
 ) -> FastAPI:
     google = google or GoogleAuth()
@@ -471,6 +533,7 @@ def create_app(
         + calendar_tools(google)
         + weather_tools()
     )
+    scheduler_store = scheduler_store or SchedulerStore()
     app = FastAPI(title="Piyo Core", version=__version__)
     app.router.add_event_handler("shutdown", browser.close)
     app.router.add_event_handler("shutdown", installer.close)
@@ -1097,6 +1160,135 @@ def create_app(
             problem=report.problem,
         )
 
+
+    def build_agent(provider: Provider, model: str, approver) -> Agent:
+        budget = run_settings.get()
+        return Agent(
+            provider,
+            model,
+            tools,
+            skills,
+            PermissionGate(approver),
+            max_tokens=limits.resolve(provider.id, model, reported.get((provider.id, model))),
+            turn_fn=turn_for(provider.id, model),
+            context_tokens=context_limits.resolve(provider.id, model, reported_context.get((provider.id, model))),
+            max_steps=budget.max_steps,
+            memory_prompt=lambda: profile_prompt(memory),
+            max_total_tokens=budget.max_tokens,
+            timeout_s=budget.timeout_s,
+            model_caps=caps_for(provider.id, model),
+            integration_issue=integration_issue,
+        )
+
+    async def run_scheduled(job, approver) -> RunResult:
+        """One unattended run of a scheduled job, in a conversation of its own that the user can open later."""
+        provider = get_provider(job.provider)
+        if run_settings.get().local_only and not provider.local:
+            return RunResult(None, "error", error="Local-only mode is on and this job uses a cloud model.")
+        conv = store.get(store.create().id)
+        store.rename(conv.id, f"Scheduled: {job.title}")
+        messages = [Message(role="user", content=job.prompt)]
+        store.append(conv.id, list(messages))
+        agent = build_agent(provider, job.model, approver)
+        log = RunLog(
+            conv.id, provider.id, job.model, job.prompt, price=price_for(provider, job.model),
+            secrets=(provider.api_key() or "", search_mod.get_key() or "", *google.secret_values()),
+        )
+        agent.log = log
+        outcome, error = "done", None
+        try:
+            async for event in agent.run(messages, set()):
+                if isinstance(event, Finished):
+                    outcome = event.reason
+        except Exception as e:
+            outcome, error = "error", describe_error(provider, e)
+        finally:
+            store.append(conv.id, complete_tool_calls(messages[1:]))
+            store.set_active_skills(conv.id, sorted(agent.active_skills))
+            run_store.save(log, outcome, error)
+            browser.set_working(False)
+        reply = next((m.content for m in reversed(messages) if m.role == "assistant" and m.content), "")
+        return RunResult(conv.id, outcome, reply, error)
+
+    async def run_approved_action(tool_name: str, arguments: dict) -> str:
+        tool = tools.get(tool_name)
+        if tool is None or tool.risk_of(arguments).value == "never":
+            raise ValueError("That action is not available any more.")
+        return await tool.handler(arguments, RunContext(skills=skills))
+
+    scheduler = Scheduler(scheduler_store, run_scheduled, run_approved_action)
+    for schedule_tool in schedule_tools(scheduler):
+        tools.register(schedule_tool)
+    if start_scheduler:
+        app.router.add_event_handler("startup", scheduler.start)
+        app.router.add_event_handler("shutdown", scheduler.stop)
+
+
+    def job_out(job) -> JobOut:
+        return JobOut(**vars(job), when=describe(job.rule))
+
+    def job_or_404(job_id: str):
+        try:
+            return scheduler.store.get_job(job_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="unknown job") from None
+
+    @app.get("/api/scheduler/jobs", dependencies=auth)
+    def list_jobs() -> list[JobOut]:
+        return [job_out(j) for j in scheduler.store.list_jobs()]
+
+    @app.post("/api/scheduler/jobs", dependencies=auth, status_code=201)
+    def create_job(body: JobIn) -> JobOut:
+        get_provider(body.provider)
+        try:
+            return job_out(scheduler.create(body.title, body.prompt, body.rule, body.provider, body.model))
+        except (RuleError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.put("/api/scheduler/jobs/{job_id}", dependencies=auth)
+    def edit_job(job_id: str, body: JobEdit) -> JobOut:
+        job_or_404(job_id)
+        try:
+            return job_out(scheduler.update(job_id, **body.model_dump()))
+        except (RuleError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.delete("/api/scheduler/jobs/{job_id}", dependencies=auth, status_code=204)
+    def delete_job(job_id: str) -> None:
+        job_or_404(job_id)
+        scheduler.store.delete_job(job_id)
+
+    @app.post("/api/scheduler/jobs/{job_id}/run", dependencies=auth, status_code=202)
+    async def run_job_now(job_id: str) -> dict:
+        job_or_404(job_id)
+        asyncio.get_running_loop().create_task(scheduler.run_now(job_id))  # the result arrives as a notification
+        return {"started": True}
+
+    @app.get("/api/scheduler/pending", dependencies=auth)
+    def list_pending() -> list[PendingOut]:
+        return [PendingOut(**vars(p)) for p in scheduler.store.list_pending()]
+
+    @app.post("/api/scheduler/pending/{pending_id}/{decision}", dependencies=auth)
+    async def decide_pending(pending_id: str, decision: str) -> PendingOut:
+        if decision not in ("approve", "decline"):
+            raise HTTPException(status_code=404, detail="unknown decision")
+        try:
+            scheduler.store.get_pending(pending_id)
+            item = await scheduler.approve(pending_id) if decision == "approve" else scheduler.decline(pending_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="unknown request") from None
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return PendingOut(**vars(item))
+
+    @app.get("/api/scheduler/events", dependencies=auth)
+    def list_events(unread: bool = False) -> list[EventOut]:
+        return [EventOut(**vars(e)) for e in scheduler.store.list_events(unread)]
+
+    @app.post("/api/scheduler/events/read", dependencies=auth, status_code=204)
+    def read_events(body: EventsRead) -> None:
+        scheduler.store.mark_read(body.ids)
+
     @app.websocket("/ws/chat")
     async def chat(ws: WebSocket) -> None:
         # Browsers can't set headers on WebSockets, so the token comes as a query param.
@@ -1165,26 +1357,7 @@ def create_app(
                     }
                 )
                 return
-            agent = Agent(
-                provider,
-                req.model,
-                tools,
-                skills,
-                PermissionGate(approver),
-                max_tokens=limits.resolve(
-                    provider.id, req.model, reported.get((provider.id, req.model))
-                ),
-                turn_fn=turn_for(provider.id, req.model),
-                context_tokens=context_limits.resolve(
-                    provider.id, req.model, reported_context.get((provider.id, req.model))
-                ),
-                max_steps=budget.max_steps,
-                memory_prompt=lambda: profile_prompt(memory),
-                max_total_tokens=budget.max_tokens,
-                timeout_s=budget.timeout_s,
-                model_caps=caps_for(provider.id, req.model),
-                integration_issue=integration_issue,
-            )
+            agent = build_agent(provider, req.model, approver)
             if req.conversation_id:
                 try:
                     conv = store.get(req.conversation_id)

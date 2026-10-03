@@ -259,6 +259,44 @@ export interface Catalog {
   skipped: number;
 }
 
+export interface SchedulerJob {
+  id: string;
+  title: string;
+  prompt: string;
+  rule: Record<string, unknown>;
+  /** The schedule in words, e.g. "Every day at 08:00". */
+  when: string;
+  provider: string;
+  model: string;
+  enabled: boolean;
+  next_run: string | null;
+  last_run: string | null;
+  last_status: "done" | "error" | "waiting" | "missed" | null;
+  last_conversation_id: string | null;
+}
+
+export interface SchedulerPending {
+  id: string;
+  job_id: string;
+  job_title: string;
+  conversation_id: string | null;
+  tool: string;
+  arguments: Record<string, unknown>;
+  summary: string;
+  status: string;
+  result: string | null;
+}
+
+export interface SchedulerEvent {
+  id: string;
+  kind: "finished" | "failed" | "approval" | "missed";
+  title: string;
+  body: string;
+  job_id: string | null;
+  conversation_id: string | null;
+  created_at: string;
+}
+
 export interface MemoryItem {
   id: string;
   category: string;
@@ -504,6 +542,18 @@ export const api = {
     request<Vision>("GET", `/api/vision?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
   setVision: (provider: string, model: string, mode: Vision["mode"]) =>
     request<Vision>("PUT", "/api/vision", { provider, model, mode }),
+  schedulerJobs: () => request<SchedulerJob[]>("GET", "/api/scheduler/jobs"),
+  createJob: (job: { title: string; prompt: string; rule: Record<string, unknown>; provider: string; model: string }) =>
+    request<SchedulerJob>("POST", "/api/scheduler/jobs", job),
+  editJob: (id: string, changes: { title?: string; prompt?: string; rule?: Record<string, unknown>; enabled?: boolean }) =>
+    request<SchedulerJob>("PUT", `/api/scheduler/jobs/${id}`, changes),
+  deleteJob: (id: string) => request<void>("DELETE", `/api/scheduler/jobs/${id}`),
+  runJob: (id: string) => request<{ started: boolean }>("POST", `/api/scheduler/jobs/${id}/run`),
+  schedulerPending: () => request<SchedulerPending[]>("GET", "/api/scheduler/pending"),
+  decidePending: (id: string, decision: "approve" | "decline") =>
+    request<SchedulerPending>("POST", `/api/scheduler/pending/${id}/${decision}`),
+  schedulerEvents: (unread = false) => request<SchedulerEvent[]>("GET", `/api/scheduler/events?unread=${unread}`),
+  markSchedulerEventsRead: (ids: string[] | null) => request<void>("POST", "/api/scheduler/events/read", { ids }),
   memory: (q = "") => request<MemoryItem[]>("GET", `/api/memory?q=${encodeURIComponent(q)}`),
   addMemory: (text: string, category: string) => request<MemoryItem>("POST", "/api/memory", { text, category }),
   editMemory: (id: string, text: string, category: string) =>

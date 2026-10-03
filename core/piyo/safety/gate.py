@@ -25,6 +25,11 @@ class ApprovalRequest:
 Approver = Callable[[ApprovalRequest], Awaitable[bool]]
 
 
+class ApprovalDeferred(Exception):
+    """Raised by an approver that cannot ask the user right now (a scheduled run). The call does not run; the
+    message goes back to the model, and the user decides later from the pending list."""
+
+
 @dataclass
 class GateResult:
     allowed: bool
@@ -47,6 +52,10 @@ class PermissionGate:
         if self._approver is None:
             return GateResult(False, "This action needs the user's approval and none is available.")
         request = ApprovalRequest(tool.name, arguments, risk, tool.summary_of(arguments), why)
-        if await self._approver(request):
+        try:
+            approved = await self._approver(request)
+        except ApprovalDeferred as held:
+            return GateResult(False, str(held), declined=True)  # declined: the loop never retries it
+        if approved:
             return GateResult(True)
         return GateResult(False, "The user declined this action.", declined=True)

@@ -1,3 +1,3 @@
-from piyo.safety.gate import ApprovalRequest, Approver, GateResult, PermissionGate
+from piyo.safety.gate import ApprovalDeferred, ApprovalRequest, Approver, GateResult, PermissionGate
 
-__all__ = ["ApprovalRequest", "Approver", "GateResult", "PermissionGate"]
+__all__ = ["ApprovalDeferred", "ApprovalRequest", "Approver", "GateResult", "PermissionGate"]

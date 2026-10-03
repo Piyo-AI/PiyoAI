@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiStyle, FolderEntry, inTauri, pickFolder, Provider, RunSettings, SkillInfo } from "./api";
 import { BrowserSettings } from "./BrowserSettings";
 import { MemoryPage } from "./MemoryPage";
+import { SchedulePage } from "./SchedulePage";
 import { GoogleConnection } from "./GoogleConnection";
 import { SkillInstall } from "./SkillInstall";
 
@@ -11,14 +12,28 @@ interface Props {
   onChanged: () => void;
   onClose: () => void;
   onSetup: (skill: string) => void; // open a skill's setup wizard
+  providerId: string; // the chat's current model, used by new scheduled jobs
+  model: string;
+  onOpenConversation: (id: string) => void;
+  initialPage?: Page;
   /** Changes when the setup wizard opens or closes, so the skill list is read again after setup changed something. */
   refreshKey?: unknown;
 }
 
-type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "browser" | "memory" | "limits";
+export type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "browser" | "memory" | "scheduled" | "limits";
 
-export function Settings({ providers, onChanged, onClose, onSetup, refreshKey }: Props) {
-  const [page, setPage] = useState<Page>("providers");
+export function Settings({
+  providers,
+  onChanged,
+  onClose,
+  onSetup,
+  providerId,
+  model,
+  onOpenConversation,
+  initialPage,
+  refreshKey,
+}: Props) {
+  const [page, setPage] = useState<Page>(initialPage ?? "providers");
   const [error, setError] = useState<string | null>(null);
 
   const go = (p: Page) => {
@@ -83,6 +98,9 @@ export function Settings({ providers, onChanged, onClose, onSetup, refreshKey }:
             <button className={`nav-item ${page === "memory" ? "active" : ""}`} onClick={() => go("memory")}>
               Memory
             </button>
+            <button className={`nav-item ${page === "scheduled" ? "active" : ""}`} onClick={() => go("scheduled")}>
+              Scheduled
+            </button>
             <button className={`nav-item ${page === "limits" ? "active" : ""}`} onClick={() => go("limits")}>
               Limits
             </button>
@@ -114,6 +132,16 @@ export function Settings({ providers, onChanged, onClose, onSetup, refreshKey }:
             {page === "skills" && <Skills onSetup={onSetup} refreshKey={refreshKey} />}
             {page === "browser" && <BrowserSettings />}
             {page === "memory" && <MemoryPage />}
+            {page === "scheduled" && (
+              <SchedulePage
+                providerId={providerId}
+                model={model}
+                onOpenConversation={(id) => {
+                  onOpenConversation(id);
+                  onClose();
+                }}
+              />
+            )}
             {page === "limits" && <Limits />}
           </div>
         </div>

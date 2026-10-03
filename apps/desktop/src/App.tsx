@@ -4,9 +4,10 @@ import { api, inTauri, ModelInfo, onCoreExit, Provider, resetConnection, restart
 import { BrowserBar } from "./BrowserBar";
 import { ChatList } from "./ChatList";
 import { ModelSettings } from "./ModelSettings";
-import { Settings } from "./Settings";
+import { Settings, Page } from "./Settings";
 import { SetupWizard } from "./SetupWizard";
 import { useModelWarnings } from "./useModelWarnings";
+import { useScheduler } from "./useScheduler";
 import { useSetupNeeded } from "./useSetupNeeded";
 import { Tasks } from "./Tasks";
 import { ApprovalCard, ToolChip } from "./Tools";
@@ -47,6 +48,7 @@ export default function App() {
   const [modelsNote, setModelsNote] = useState("");
   const [coreError, setCoreError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsPage, setSettingsPage] = useState<Page | undefined>(undefined);
   const [wizardSkill, setWizardSkill] = useState<string | null>(null);
   const [showTasks, setShowTasks] = useState(false);
   const [input, setInput] = useState("");
@@ -165,6 +167,7 @@ export default function App() {
 
   const warnings = useModelWarnings(provider, model, [models, showSettings, busy]);
   const setup = useSetupNeeded([showSettings, wizardSkill]);
+  const scheduler = useScheduler(open);
 
   const canSend =!!provider && !!model.trim() && !!input.trim() && !busy;
 
@@ -300,6 +303,42 @@ export default function App() {
           </div>
         </div>
       ))}
+      {scheduler.events.map((ev) => (
+        <div key={ev.id} className={`banner ${ev.kind === "finished" ? "" : "warn"}`} role="status">
+          <p>
+            <strong>{ev.title}.</strong> {ev.body}
+          </p>
+          <div className="inline">
+            {ev.kind === "approval" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsPage("scheduled");
+                  setShowSettings(true);
+                  scheduler.dismiss(ev.id);
+                }}
+              >
+                Review
+              </button>
+            ) : (
+              ev.conversation_id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    open(ev.conversation_id!);
+                    scheduler.dismiss(ev.id);
+                  }}
+                >
+                  Open
+                </button>
+              )
+            )}
+            <button type="button" className="ghost" onClick={() => scheduler.dismiss(ev.id)}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ))}
       {warnings.length > 0 && (
         <div className="banner warn" role="status">
           {warnings.map((w) => (
@@ -333,8 +372,15 @@ export default function App() {
       {showSettings && (
         <Settings
           providers={providers}
+          providerId={providerId}
+          model={model}
+          onOpenConversation={open}
+          initialPage={settingsPage}
           onChanged={loadProviders}
-          onClose={() => setShowSettings(false)}
+          onClose={() => {
+            setShowSettings(false);
+            setSettingsPage(undefined);
+          }}
           onSetup={setWizardSkill}
           refreshKey={wizardSkill}
         />

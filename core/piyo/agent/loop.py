@@ -117,6 +117,8 @@ class Agent:
             active_skills=set(active_skills or ()),
             model_caps=self.model_caps,
             integration_issue=self.integration_issue,
+            provider_id=self.provider.id,
+            model=self.model,
         )
         self.active_skills = ctx.active_skills
         catalog = self.skills.catalog_prompt(self.model_caps)

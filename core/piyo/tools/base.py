@@ -34,6 +34,9 @@ class RunContext:
     # Says why an integration a skill needs isn't usable (not connected, expired), None when it is.
     integration_issue: Callable[[str], str | None] | None = None
 
+    provider_id: str | None = None  # which model this run uses, so a schedule can use the same
+    model: str | None = None
+
     # Pictures tools attached during the current call; the loop moves them onto the tool result message.
     pending_images: list[Image] = field(default_factory=list)
 
