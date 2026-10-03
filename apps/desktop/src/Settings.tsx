@@ -1,16 +1,18 @@
 import { FormEvent, useEffect, useState } from "react";
 
 import { api, ApiStyle, FolderEntry, inTauri, pickFolder, Provider, RunSettings, SkillInfo } from "./api";
+import { GoogleConnection } from "./GoogleConnection";
 
 interface Props {
   providers: Provider[];
   onChanged: () => void;
   onClose: () => void;
+  onSetup: (skill: string) => void; // open a skill's setup wizard
 }
 
 type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "limits";
 
-export function Settings({ providers, onChanged, onClose }: Props) {
+export function Settings({ providers, onChanged, onClose, onSetup }: Props) {
   const [page, setPage] = useState<Page>("providers");
   const [error, setError] = useState<string | null>(null);
 
@@ -98,7 +100,7 @@ export function Settings({ providers, onChanged, onClose }: Props) {
             )}
             {page === "web-search" && <WebSearch />}
             {page === "folders" && <Folders />}
-            {page === "skills" && <Skills />}
+            {page === "skills" && <Skills onSetup={onSetup} />}
             {page === "limits" && <Limits />}
           </div>
         </div>
@@ -107,7 +109,7 @@ export function Settings({ providers, onChanged, onClose }: Props) {
   );
 }
 
-function Skills() {
+function Skills({ onSetup }: { onSetup: (skill: string) => void }) {
   const [skills, setSkills] = useState<SkillInfo[] | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -147,6 +149,7 @@ function Skills() {
         asks you first. Switching one off hides it from Piyo; it is remembered after a restart.
       </p>
       {error && <p className="error">{error}</p>}
+      <GoogleConnection onChange={load} />
       {skills && skills.length === 0 && <p className="hint">No skills found.</p>}
       <ul className="providers">
         {skills?.map((s) => (
@@ -165,9 +168,24 @@ function Skills() {
             <p className="hint">{s.description}</p>
             <p className="hint">Tools: {s.tools.length ? s.tools.join(", ") : "none"}</p>
             {s.integrations.length > 0 && <p className="hint">Integrations: {s.integrations.join(", ")}</p>}
+            {Object.entries(s.integration_issues).map(([name, why]) => (
+              <p key={name} className="error">
+                {name}: {why}
+              </p>
+            ))}
             {s.secrets.length > 0 && <p className="hint">Needs secrets: {s.secrets.join(", ")}</p>}
             {needs(s).length > 0 && <p className="hint">Needs {needs(s).join(" and ")}.</p>}
-            {s.has_setup && <p className="hint">Has setup steps.</p>}
+            {s.has_setup && (
+              <p>
+                <button
+                  type="button"
+                  className={Object.keys(s.integration_issues).length ? undefined : "ghost"}
+                  onClick={() => onSetup(s.name)}
+                >
+                  {Object.keys(s.integration_issues).length ? "Set up" : "Setup guide"}
+                </button>
+              </p>
+            )}
           </li>
         ))}
       </ul>

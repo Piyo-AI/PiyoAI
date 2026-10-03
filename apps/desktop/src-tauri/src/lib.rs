@@ -7,6 +7,7 @@ pub fn run() {
     let state = core::CoreState::new();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(state.clone())
         .setup(|app| {
             let state = app.state::<std::sync::Arc<core::CoreState>>().inner().clone();

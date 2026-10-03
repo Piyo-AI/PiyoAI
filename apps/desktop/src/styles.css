@@ -812,3 +812,109 @@ button.stop:disabled {
   border-color: var(--error);
   color: var(--error);
 }
+
+/* Setup wizard */
+.wizard-overlay {
+  z-index: 20;
+}
+.dialog.wizard {
+  max-width: 760px;
+}
+.wizard .steps {
+  list-style: none;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 0;
+  margin: 12px 0;
+}
+.wizard .steps button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 2px 10px 2px 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wizard .steps .n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  font-size: 11px;
+}
+.wizard .steps .current button {
+  color: var(--text);
+  border-color: var(--text);
+}
+.wizard .steps .past .n {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.wizard .steps .t {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-body h3 {
+  margin: 4px 0 10px;
+}
+.step-body h4 {
+  margin: 14px 0 6px;
+}
+.step-body p,
+.step-body li {
+  line-height: 1.5;
+}
+.step-body ul.tasks {
+  list-style: none;
+  padding-left: 0;
+}
+.step-body pre.code {
+  background: var(--panel, rgba(127, 127, 127, 0.12));
+  padding: 8px 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.step-body code {
+  background: rgba(127, 127, 127, 0.15);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.step-body .widget,
+.step-body .folders {
+  margin: 10px 0;
+}
+.test-results {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+.test-results li.ok {
+  color: var(--ok);
+}
+.wizard-nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+.setup-banner .inline {
+  margin-top: 4px;
+}
+.inline input[type="checkbox"] {
+  flex: none;
+  min-width: 0;
+}
+.row-head .badge {
+  align-self: center;
+}
+.providers.accounts {
+  margin-bottom: 12px;
+}

@@ -19,6 +19,8 @@ from piyo.config.model_vision import ModelVision
 from piyo.config.run_settings import RunSettings
 from piyo.config.skill_state import SkillState
 from piyo.config.tool_modes import ToolModes
+from piyo.integrations.google import SCOPE_GROUPS, GoogleAuth, GoogleError
+from piyo.integrations.google.check import check_connection
 from piyo.models import (
     MissingApiKey,
     ModelInfo,
@@ -44,8 +46,12 @@ from piyo.store import (
 )
 from piyo.tools import ToolRegistry, core_tools
 from piyo.tools import search as search_mod
+from piyo.tools.calendar import calendar_tools
 from piyo.tools.files import file_tools
+from piyo.tools.gmail import gmail_tools
+from piyo.tools.google import google_account_tools
 from piyo.tools.search import search_tools
+from piyo.tools.weather import weather_tools
 from piyo.tools.web import web_tools
 
 # Tauri webview origins (Windows/Linux, macOS) and the Vite dev server.
@@ -58,6 +64,7 @@ ALLOWED_ORIGINS = [
 
 # Tool output shown in the app is a preview; the model still gets the full result.
 UI_OUTPUT_CHARS = 2000
+MAX_SETUP_BYTES = 100_000
 WHY_CHARS = 400  # the model's reason shown on an approval card
 
 
@@ -72,6 +79,7 @@ class SkillOut(BaseModel):
     author: str | None = None
     risk: str | None = None
     integrations: list[str] = []
+    integration_issues: dict[str, str] = {}  # integration -> why it isn't ready; empty when all are
     secrets: list[str] = []
     model_needs: dict = {}  # what the skill needs from the model: vision, min_context
     model_issues: list[str] = []  # why the model named in the request can't run it; empty when fine
@@ -196,6 +204,50 @@ class KeyIn(BaseModel):
     key: str
 
 
+class GoogleClientIn(BaseModel):
+    client_id: str
+    client_secret: str | None = None
+
+
+class GoogleConnectIn(BaseModel):
+    groups: list[str] = []  # scope groups beyond the read-only default
+    account: str | None = None  # add access to this account; omit to add a new one
+
+
+class GoogleAccountOut(BaseModel):
+    email: str
+    groups: list[str] = []  # the access this account has granted
+
+
+class GoogleStatusOut(BaseModel):
+    state: str  # disconnected | connecting | connected (connecting can happen while others are connected)
+    has_client: bool
+    accounts: list[GoogleAccountOut] = []
+    error: str | None = None
+    console_url: str
+    available_groups: list[str] = list(SCOPE_GROUPS)
+
+
+class GoogleCheckItem(BaseModel):
+    service: str
+    ok: bool
+    detail: str
+
+
+class GoogleCheckOut(BaseModel):
+    ok: bool
+    results: list[GoogleCheckItem]
+
+
+class SetupOut(BaseModel):
+    name: str
+    markdown: str
+
+
+class GoogleConnectOut(BaseModel):
+    url: str  # the app opens this in the user's browser
+
+
 class ChatRequest(BaseModel):
     type: str = "chat"
     provider: str
@@ -272,7 +324,9 @@ def create_app(
     skills: SkillRegistry | None = None,
     turn_fn=stream_turn,
     store: ConversationStore | None = None,
+    google: GoogleAuth | None = None,
 ) -> FastAPI:
+    google = google or GoogleAuth()
     registry = registry or ProviderRegistry()
     skills = skills or SkillRegistry()
     skill_state = SkillState()
@@ -295,7 +349,16 @@ def create_app(
     reported_context: dict[tuple[str, str], int] = {}  # context windows, same source
     reported_vision: dict[tuple[str, str], bool] = {}
     folders = ApprovedFolders()
-    tools = ToolRegistry(core_tools() + file_tools(folders) + web_tools() + search_tools())
+    tools = ToolRegistry(
+        core_tools()
+        + file_tools(folders)
+        + web_tools()
+        + search_tools()
+        + gmail_tools(google)
+        + google_account_tools(google)
+        + calendar_tools(google)
+        + weather_tools()
+    )
     app = FastAPI(title="Piyo Core", version=__version__)
     app.state.tools = tools
     app.add_middleware(
@@ -337,6 +400,56 @@ def create_app(
     @app.delete("/api/search/key", dependencies=auth, status_code=204)
     def delete_search_key() -> None:
         search_mod.delete_key()
+
+    def integration_issue(name: str) -> str | None:
+        if name == "google":
+            if google.connected():
+                return None
+            return google.status()["error"] or "Google is not connected."
+        return f"Unknown integration {name!r}."
+
+    def google_status() -> GoogleStatusOut:
+        return GoogleStatusOut(**google.status())
+
+    @app.get("/api/integrations/google", dependencies=auth)
+    def get_google() -> GoogleStatusOut:
+        return google_status()
+
+    @app.put("/api/integrations/google/client", dependencies=auth, status_code=204)
+    def set_google_client(body: GoogleClientIn) -> None:
+        if not body.client_id.strip():
+            raise HTTPException(status_code=400, detail="The client ID is empty.")
+        google.set_client(body.client_id, body.client_secret)
+
+    @app.post("/api/integrations/google/connect", dependencies=auth)
+    async def connect_google(body: GoogleConnectIn) -> GoogleConnectOut:
+        try:
+            return GoogleConnectOut(url=await google.begin(body.groups, body.account))
+        except GoogleError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.post("/api/integrations/google/test", dependencies=auth)
+    async def test_google() -> GoogleCheckOut:
+        try:
+            return GoogleCheckOut(**await check_connection(google))
+        except GoogleError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.post("/api/integrations/google/cancel", dependencies=auth, status_code=204)
+    async def cancel_google() -> None:
+        await google.cancel()
+
+    @app.delete("/api/integrations/google", dependencies=auth, status_code=204)
+    async def disconnect_google(account: str | None = None, remove_client: bool = False) -> None:
+        """Disconnect one account, or all of them when none is named."""
+        try:
+            await google.disconnect(account)
+        except GoogleError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from None
+        if remove_client:
+            google.clear_client()
 
     @app.get("/api/folders", dependencies=auth)
     def get_folders() -> FoldersIn:
@@ -625,6 +738,11 @@ def create_app(
                     author=sk.manifest.author,
                     risk=sk.manifest.risk,
                     integrations=sk.manifest.requires.integrations,
+                    integration_issues={
+                        i: issue
+                        for i in sk.manifest.requires.integrations
+                        if (issue := integration_issue(i))
+                    },
                     secrets=sk.manifest.requires.secrets,
                     model_needs=sk.manifest.requires.model.model_dump(exclude_defaults=True),
                     model_issues=model_issues(sk.manifest.requires.model, caps) if caps else [],
@@ -633,6 +751,16 @@ def create_app(
             ],
             errors=skills.errors,
         )
+
+    @app.get("/api/skills/{name}/setup", dependencies=auth)
+    def skill_setup(name: str) -> SetupOut:
+        skill = next((sk for sk in skills.list() if sk.manifest.name == name), None)
+        if skill is None or not skill.has_setup:
+            raise HTTPException(status_code=404, detail="This skill has no setup guide.")
+        path = skill.path / "SETUP.md"
+        if path.stat().st_size > MAX_SETUP_BYTES:
+            raise HTTPException(status_code=413, detail="The setup guide is too large to show.")
+        return SetupOut(name=name, markdown=path.read_text(encoding="utf-8", errors="replace"))
 
     @app.put("/api/skills/{name}", dependencies=auth, status_code=204)
     def set_skill_enabled(name: str, body: SkillEnabledIn) -> None:
@@ -775,6 +903,7 @@ def create_app(
                 max_total_tokens=budget.max_tokens,
                 timeout_s=budget.timeout_s,
                 model_caps=caps_for(provider.id, req.model),
+                integration_issue=integration_issue,
             )
             if req.conversation_id:
                 try:
@@ -800,7 +929,7 @@ def create_app(
                 req.model,
                 req.message,
                 price=price_for(provider, req.model),
-                secrets=(provider.api_key() or "", search_mod.get_key() or ""),
+                secrets=(provider.api_key() or "", search_mod.get_key() or "", *google.secret_values()),
             )
             agent.log = log
             logged = False

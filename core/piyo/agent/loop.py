@@ -84,7 +84,9 @@ class Agent:
         model_caps: ModelCaps | None = None,  # what the model can do; None skips skill checks
         max_total_tokens: int | None = None,  # budget: input + output over the whole run
         timeout_s: float | None = None,  # budget: wall clock, minus time waiting for approvals
+        integration_issue: Callable[[str], str | None] | None = None,  # see RunContext
     ) -> None:
+        self.integration_issue = integration_issue
         self.model_caps = model_caps
         self.max_total_tokens = max_total_tokens
         self.timeout_s = timeout_s
@@ -109,7 +111,10 @@ class Agent:
         self, messages: list[Message], active_skills: set[str] | None = None
     ) -> AsyncIterator[AgentEvent]:
         ctx = RunContext(
-            skills=self.skills, active_skills=set(active_skills or ()), model_caps=self.model_caps
+            skills=self.skills,
+            active_skills=set(active_skills or ()),
+            model_caps=self.model_caps,
+            integration_issue=self.integration_issue,
         )
         self.active_skills = ctx.active_skills
         catalog = self.skills.catalog_prompt(self.model_caps)

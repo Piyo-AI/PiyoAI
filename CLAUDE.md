@@ -37,10 +37,11 @@ until a newer release is confirmed to run.
 | `config/` | Per-user data dirs (`PIYO_DATA_DIR` overrides), keychain secrets, approved folders, per-model output limits (`model_limits.py`) |
 | `models/` | Providers as data (`providers.py`); model clients, model lists (`clients.py`); one tool-calling turn normalised across both wire formats (`turn.py`); tools as text for models without tool calling (`prompt_tools.py`) |
 | `agent/` | The loop (`loop.py`): model turn, tool calls, results, repeat; system prompt (`prompts.py`) |
-| `tools/` | `Tool`, `Risk`, `ToolRegistry`, `RunContext`; core tools `load_skill`, `current_time` |
+| `tools/` | `Tool`, `Risk`, `ToolRegistry`, `RunContext`; core tools `load_skill`, `current_time`; `google.py` (`ACCOUNT_PROP`, `who`, `google.accounts`), `gmail.py` (Gmail tools), `calendar.py` (Calendar tools), `weather.py` (Open-Meteo forecast, no key) |
 | `safety/` | `PermissionGate`: every tool call is authorised here before it runs; `untrusted.py` fences outside text |
 | `skills/` | `SKILL.md` parsing/validation (`manifest.py`) and discovery (`registry.py`) |
 | `store/` | `ConversationStore`: conversations, messages (tool calls included) and loaded skills in SQLite; `runs.py`: the task log (`RunLog`, `RunStore`, `redact`) |
+| `integrations/` | `google/oauth.py`: `GoogleAuth` (BYO OAuth client, loopback + PKCE sign-in, token refresh, revoke; several accounts: `accounts()`, `resolve(account)`, per-account grants and tokens); tokens only in the keychain, one entry per account (`account_secret`). `google/client.py`: `GoogleClient` (authorised requests, 401 refresh-and-retry, `error_for` maps failures to `GoogleError(kind, message)`, `require` checks the granted scope before a tool calls out) |
 | `server/` | FastAPI + WebSocket API for the app (`app.py`), launcher (`__main__.py`; exits when stdin closes if `PIYO_EXIT_ON_STDIN_EOF` is set) |
 
 Tauri shell (`apps/desktop/src-tauri/src/core.rs`): runs the core as a child (`uv run piyo-core` in dev; release builds
@@ -48,7 +49,7 @@ report that packaging is not done), exposes `core_status` / `restart_core` and t
 `api.ts` `resolveConnection` polls it. Debug builds only.
 
 Desktop (`apps/desktop/src/`): `App.tsx` (chat shell), `useChat.ts` (chat state + socket events), `api.ts`
-(HTTP/WS client), `Tools.tsx` (tool chips, approval card), `Settings.tsx` (settings window: left sidebar with Providers > Provider list / Add provider, Web search, Folders, Skills, Limits).
+(HTTP/WS client), `Tools.tsx` (tool chips, approval card), `Settings.tsx` (settings window: left sidebar with Providers > Provider list / Add provider, Web search, Folders, Skills, Limits), `GoogleConnection.tsx` (client ID, access checkboxes, Connect/Disconnect), `SetupWizard.tsx` + `Markdown.tsx` (a skill's `SETUP.md` as a step-by-step wizard; `useSetupNeeded.ts` drives the chat banner).
 `useModelWarnings.ts` (pre-send banner: unusable skills, local-only), `ModelSettings.tsx` (the "Model settings" popover: per-model max reply, context size and tool mode), `Tasks.tsx` (task log; its Approvals tab is `Audit.tsx`).
 Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 
@@ -106,6 +107,22 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
   count. The audit check (`verified`) always covers the whole chain, whatever page is asked for.
 - **Folder picker:** Settings > Folders uses Tauri's dialog plugin (`pickFolder` in `api.ts`, capability `dialog:allow-open`);
   in a plain browser only the typed path is offered.
+- **Integrations.** A skill's `requires.integrations: [google]` is checked in `load_skill` through `RunContext.integration_issue`
+  (the server's `integration_issue`): an unmet one refuses the load with a message for the user, and `/api/skills` lists it in
+  `integration_issues`. Google API: `/api/integrations/google` (status, `PUT client`, `POST connect` returns the URL the app opens,
+  `POST cancel`, `DELETE`). The sign-in runs as a background task in the server's event loop, so it needs one loop (tests use `with client:`).
+- **Google accounts.** `GoogleAuth.resolve(account)` is the one place an account is chosen: no name works only while exactly one is
+  connected, several need an exact (case-insensitive) match, anything else raises `GoogleError` (`account_needed` / `bad_account`).
+  Every Google tool calls `GoogleClient.require(..., account=args.get("account"))` first and passes the returned id to every request, and its
+  approval card uses `who(auth, args)`. A new Google tool must do both and take `ACCOUNT_PROP`. `tests/test_google_accounts.py` has the
+  parametrised "refuses to guess" test: add the tool to its list.
+- **Setup guides.** A skill's `SETUP.md` is served by `GET /api/skills/{name}/setup` and rendered by `Markdown.tsx` (headings, lists,
+  task lists, code, bold, http(s) links; React elements, never HTML). `##` headings are the wizard's steps. A guide may embed only the
+  widgets in `SetupWizard.tsx` (`:::google:::`, `:::google-test:::`, `:::open-setup <skill>:::`); `tests/test_google_setup.py` checks every
+  built-in guide uses only those. Add a widget there and in that test's list together.
+- **Links.** The Tauri webview does not follow links out of the app. `openLinksExternally()` (called in `main.tsx`; it listens in the capture phase because the dialogs call `stopPropagation`, which hides clicks from a bubbling `document` listener) sends http(s) clicks to the
+  system browser through `tauri-plugin-opener` (capabilities `opener:allow-open-url` and `opener:allow-default-urls`; the first has no URL scope on its own, so without the second every open is denied); use `openExternal` for buttons. Adding the plugin needs a
+  Rust rebuild: restart `tauri:dev`.
 - Tool names use dots internally (`gmail.read`); the wire name is `gmail__read` (providers reject dots).
 
 ## Invariants (do not break; add a test when touching them)
@@ -134,6 +151,6 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 ## Current state
 
 Working: chat with streaming, providers/keys/model lists, agent loop with tool calling, permission gate with
-approval UI, stop/cancel, skill loading and per-skill tool grants, example skills `plan-my-day` and `downloads-organizer`.
+approval UI, stop/cancel, skill loading and per-skill tool grants, example skills `plan-my-day` and `downloads-organizer`. Gmail (`gmail.*` tools, skill `gmail-triage`; read/draft auto, send/label/archive confirm; mail is fenced as untrusted; needs the user's own Google client, see Settings > Skills). Calendar (`calendar.*` tools, skill `calendar`; agenda/free-busy auto, create/update/delete confirm; bare times are read in the calendar's zone). Weather (`weather.forecast`) and the read-only skill `morning-brief` (calendar + unread mail + weather; the user's city is asked each time until Phase 4 memory). The setup wizard is next. `tzdata` is a dependency (Windows has no zone database); a packaged core must include it.
 File tools (`files.*`, approved folders only; API `/api/folders`, Settings section to manage them, with a per-folder "no prompts for changes" switch). `web.fetch` (public hosts only, output fenced as untrusted; skill `web-reader`). `web.search` (Brave; key in keychain, `/api/search`; skill `web-research`). Sidecar launch in dev, CI and contributor docs are in place. Not yet: packaged core for release builds,
 integrations. See `../docs/README.md` for the ordered plan.

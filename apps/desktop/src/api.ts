@@ -172,6 +172,26 @@ export interface ConversationDetail extends ConversationInfo {
   active_skills: string[];
 }
 
+export interface GoogleCheck {
+  ok: boolean;
+  results: { service: string; ok: boolean; detail: string }[];
+}
+
+export interface GoogleAccount {
+  email: string;
+  /** The access this account has granted, beyond identity. */
+  groups: string[];
+}
+
+export interface GoogleStatus {
+  state: "disconnected" | "connecting" | "connected";
+  has_client: boolean;
+  accounts: GoogleAccount[];
+  error: string | null;
+  console_url: string;
+  available_groups: string[];
+}
+
 export interface SkillInfo {
   name: string;
   description: string;
@@ -183,6 +203,8 @@ export interface SkillInfo {
   author: string | null;
   risk: string | null;
   integrations: string[];
+  /** Integration -> why it isn't ready (not connected, expired); empty when all are. */
+  integration_issues: Record<string, string>;
   secrets: string[];
   /** What the skill needs from the model: vision, min_context. */
   model_needs: { vision?: boolean; min_context?: number };
@@ -252,6 +274,32 @@ export async function pickFolder(title: string): Promise<string | null> {
   return typeof chosen === "string" ? chosen : null;
 }
 
+/** Opens a web address in the user's own browser. Only http(s) is passed on. */
+export async function openExternal(url: string): Promise<void> {
+  if (!/^https?:\/\//i.test(url)) return;
+  if (inTauri()) {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(url);
+  } else {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+
+/** The webview does not follow links that leave the app, so send them to the browser instead. */
+export function openLinksExternally(): void {
+  document.addEventListener("click", (e) => {
+    if (e.defaultPrevented || e.button !== 0) return;
+    const link = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+    if (!link || !/^https?:\/\//i.test(link.href) || link.origin === window.location.origin) return;
+    e.preventDefault();
+    openExternal(link.href).catch((err) => {
+      console.error("Could not open link", err);
+      const why = err instanceof Error ? err.message : String(err);
+      window.alert(`Piyo could not open your browser (${why}).\n\n${link.href}`);
+    });
+  }, true); // capture phase: dialogs stop clicks from bubbling, so a bubbling listener never sees them
+}
+
 /** Tauri only: tell the shell to start a fresh core, then forget the old connection. */
 export async function restartCore() {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -300,6 +348,23 @@ export const api = {
       "GET",
       provider && model ? `/api/skills?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}` : "/api/skills",
     ),
+  googleTest: () => request<GoogleCheck>("POST", "/api/integrations/google/test"),
+  skillSetup: (name: string) =>
+    request<{ name: string; markdown: string }>("GET", `/api/skills/${encodeURIComponent(name)}/setup`),
+  googleStatus: () => request<GoogleStatus>("GET", "/api/integrations/google"),
+  setGoogleClient: (client_id: string, client_secret: string | null) =>
+    request<void>("PUT", "/api/integrations/google/client", { client_id, client_secret }),
+  /** `account` adds access to that account; leave it out to add a new one. */
+  connectGoogle: (groups: string[], account?: string) =>
+    request<{ url: string }>("POST", "/api/integrations/google/connect", { groups, account: account ?? null }),
+  cancelGoogle: () => request<void>("POST", "/api/integrations/google/cancel"),
+  /** One account, or every account when none is named. */
+  disconnectGoogle: (opts: { account?: string; removeClient?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.account) q.set("account", opts.account);
+    if (opts.removeClient) q.set("remove_client", "true");
+    return request<void>("DELETE", `/api/integrations/google${q.size ? `?${q}` : ""}`);
+  },
   searchStatus: () => request<{ provider: string; has_key: boolean; docs_url: string }>("GET", "/api/search"),
   setSearchKey: (key: string) => request<void>("PUT", "/api/search/key", { key }),
   deleteSearchKey: () => request<void>("DELETE", "/api/search/key"),

@@ -4,7 +4,9 @@ import { api, inTauri, ModelInfo, onCoreExit, Provider, resetConnection, restart
 import { ChatList } from "./ChatList";
 import { ModelSettings } from "./ModelSettings";
 import { Settings } from "./Settings";
+import { SetupWizard } from "./SetupWizard";
 import { useModelWarnings } from "./useModelWarnings";
+import { useSetupNeeded } from "./useSetupNeeded";
 import { Tasks } from "./Tasks";
 import { ApprovalCard, ToolChip } from "./Tools";
 import { useChat } from "./useChat";
@@ -43,6 +45,7 @@ export default function App() {
   const [modelsNote, setModelsNote] = useState("");
   const [coreError, setCoreError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [wizardSkill, setWizardSkill] = useState<string | null>(null);
   const [showTasks, setShowTasks] = useState(false);
   const [input, setInput] = useState("");
   const {
@@ -154,6 +157,7 @@ export default function App() {
   }, [busy, stop]);
 
   const warnings = useModelWarnings(provider, model, [models, showSettings, busy]);
+  const setup = useSetupNeeded([showSettings, wizardSkill]);
 
   const canSend =!!provider && !!model.trim() && !!input.trim() && !busy;
 
@@ -272,6 +276,22 @@ export default function App() {
         <div ref={bottom} />
       </main>
 
+      {setup.needed.map((n) => (
+        <div key={n.integration} className="banner warn setup-banner" role="status">
+          <p>
+            {n.integration[0].toUpperCase() + n.integration.slice(1)} isn't connected yet, so {n.skills.join(", ")} can't
+            run.{n.issue.includes("not connected") ? "" : ` ${n.issue}`}
+          </p>
+          <div className="inline">
+            <button type="button" onClick={() => setWizardSkill(n.guide)}>
+              Set up
+            </button>
+            <button type="button" className="ghost" onClick={() => setup.dismiss(n.integration)}>
+              Not now
+            </button>
+          </div>
+        </div>
+      ))}
       {warnings.length > 0 && (
         <div className="banner warn" role="status">
           {warnings.map((w) => (
@@ -302,7 +322,15 @@ export default function App() {
 
       {showTasks && <Tasks conversationId={conversationId} onClose={() => setShowTasks(false)} />}
       {showSettings && (
-        <Settings providers={providers} onChanged={loadProviders} onClose={() => setShowSettings(false)} />
+        <Settings
+          providers={providers}
+          onChanged={loadProviders}
+          onClose={() => setShowSettings(false)}
+          onSetup={setWizardSkill}
+        />
+      )}
+      {wizardSkill && (
+        <SetupWizard skill={wizardSkill} onClose={() => setWizardSkill(null)} onOpenSkill={setWizardSkill} />
       )}
     </div>
   );

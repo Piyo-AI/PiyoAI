@@ -20,6 +20,14 @@ async def _load_skill(args: dict, ctx: RunContext) -> str:
             "It was not loaded. Tell the user this and what to change; don't attempt the task "
             "without the skill."
         )
+    if ctx.integration_issue:
+        for integration in skill.manifest.requires.integrations:
+            if issue := ctx.integration_issue(integration):
+                return (
+                    f"The skill {name!r} needs {integration}, which isn't ready: {issue} "
+                    "It was not loaded. Tell the user to connect it in Settings > Skills; "
+                    "don't attempt the task without the skill."
+                )
     ctx.active_skills.add(skill.manifest.name)
     parts = [f"# Skill: {skill.manifest.name}", "", skill.body.strip()]
     if skill.scripts:

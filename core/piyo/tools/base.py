@@ -31,6 +31,8 @@ class RunContext:
     skills: SkillRegistry
     active_skills: set[str] = field(default_factory=set)
     model_caps: ModelCaps | None = None  # what the selected model can do; None skips the check
+    # Says why an integration a skill needs isn't usable (not connected, expired), None when it is.
+    integration_issue: Callable[[str], str | None] | None = None
 
     def granted_tools(self) -> set[str]:
         """Tools unlocked by the skills loaded so far (union of their `requires.tools`)."""

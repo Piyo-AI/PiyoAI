@@ -24,7 +24,8 @@ def isolated(tmp_path, monkeypatch):
     """Never touch the real keychain, data dir, or developer API keys in tests."""
     monkeypatch.setenv("PIYO_DATA_DIR", str(tmp_path))
     for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY",
-                "DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "GEMINI_API_KEY"):
+                "DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "GEMINI_API_KEY",
+                "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"):
         monkeypatch.delenv(var, raising=False)
     previous = keyring.get_keyring()
     keyring.set_keyring(MemoryKeyring())
