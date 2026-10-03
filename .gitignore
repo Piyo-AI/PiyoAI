@@ -27,4 +27,5 @@ Thumbs.db
 
 
 # Tauri build output
-src-tauri/gen/
+**/src-tauri/gen/
+.devdata/

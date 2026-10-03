@@ -67,3 +67,37 @@ def test_ws_reports_missing_key(client):
                       "messages": [{"role": "user", "content": "hi"}]})
         event = ws.receive_json()
     assert event["type"] == "error" and "API key" in event["message"]
+
+
+@pytest.mark.parametrize("origin", ["http://127.0.0.1:1420", "http://localhost:1420",
+                                    "http://tauri.localhost", "tauri://localhost"])
+def test_cors_allows_app_origins(client, origin):
+    r = client.options("/api/providers", headers={"Origin": origin,
+                                                 "Access-Control-Request-Method": "GET",
+                                                 "Access-Control-Request-Headers": "authorization"})
+    assert r.headers.get("access-control-allow-origin") == origin
+
+
+def test_cors_rejects_other_origins(client):
+    r = client.options("/api/providers", headers={"Origin": "https://evil.example",
+                                                 "Access-Control-Request-Method": "GET"})
+    assert "access-control-allow-origin" not in r.headers
+
+
+def test_ws_unreachable_local_provider_fails_fast(client):
+    """Ollama not running: a readable error within seconds, not a hang."""
+    import time
+
+    from piyo.models import ProviderUpdate
+
+    reg = server.ProviderRegistry()
+    reg.update("ollama", ProviderUpdate(base_url="http://127.0.0.1:9/v1"))
+    c = TestClient(server.create_app(TOKEN, reg))
+    start = time.monotonic()
+    with c.websocket_connect(f"/ws/chat?token={TOKEN}") as ws:
+        ws.send_json({"provider": "ollama", "model": "m",
+                      "messages": [{"role": "user", "content": "hi"}]})
+        event = ws.receive_json()
+    assert event["type"] == "error"
+    assert "Couldn't connect to Ollama" in event["message"] and "Is it running?" in event["message"]
+    assert time.monotonic() - start < 15

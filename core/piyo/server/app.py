@@ -15,12 +15,18 @@ from piyo.models import (
     Provider,
     ProviderRegistry,
     ProviderUpdate,
+    describe_error,
     list_models,
     stream_chat,
 )
 
 # Tauri webview origins (Windows/Linux, macOS) and the Vite dev server.
-ALLOWED_ORIGINS = ["http://tauri.localhost", "tauri://localhost", "http://localhost:1420"]
+ALLOWED_ORIGINS = [
+    "http://tauri.localhost",
+    "tauri://localhost",
+    "http://localhost:1420",
+    "http://127.0.0.1:1420",
+]
 
 SYSTEM_PROMPT = (
     "You are Piyo, a helpful personal assistant that helps the user with their daily tasks. "
@@ -114,7 +120,7 @@ def create_app(token: str, registry: ProviderRegistry | None = None) -> FastAPI:
         except MissingApiKey as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
         except Exception as e:  # network / auth errors from the provider
-            raise HTTPException(status_code=502, detail=f"{provider.name}: {e}") from None
+            raise HTTPException(status_code=502, detail=describe_error(provider, e)) from None
 
     @app.websocket("/ws/chat")
     async def chat(ws: WebSocket) -> None:
@@ -140,7 +146,7 @@ def create_app(token: str, registry: ProviderRegistry | None = None) -> FastAPI:
                 except WebSocketDisconnect:
                     raise
                 except Exception as e:
-                    await ws.send_json({"type": "error", "message": str(e)})
+                    await ws.send_json({"type": "error", "message": describe_error(provider, e)})
         except WebSocketDisconnect:
             pass
 
