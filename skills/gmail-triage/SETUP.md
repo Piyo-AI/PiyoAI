@@ -43,15 +43,21 @@ Google calls this the "OAuth consent screen" (newer consoles call it **Google Au
 1. Open [the consent screen settings](https://console.cloud.google.com/apis/credentials/consent).
 2. If asked, choose **Get started**. App name: **Piyo AI**. User support email: your address.
 3. Audience: choose **External**. Contact email: your address. Accept the policy and choose **Create**.
-4. Open **Audience** and add **your own Google address** under **Test users**. Leave the app in **Testing**.
-   If you plan to connect more than one account (say a personal and a work address), add **each** of them
-   here; Google refuses sign-in for any address not on the list.
+4. Open **Audience** and choose **Publish app**, then confirm. The status changes from **Testing** to
+   **In production**.
 
-While the app is in Testing, Google may expire the sign-in after about a week, so you may need to press Connect
-again now and then. That is a Google rule for test apps, not a Piyo problem.
+Publishing sounds like a big step, but for an app only you use it just means Google stops expiring your sign-in
+every 7 days. It does not make the app public or searchable, and Google does not review it. Other people can
+only use it if you give them the client ID. Do this **before** you connect, so the first sign-in is already a
+long-lived one.
+
+**If you would rather not publish,** leave the app in **Testing** and add your address (and every other account
+you want to connect) under **Test users**. It works the same, but Google expires the sign-in after about a week
+and you will need to choose **Connect Google** again now and then. That is a Google rule for test apps, not a
+Piyo problem. (Google's rules can change; if sign-in stops working, check the Audience page first.)
 
 - [ ] Consent screen is created
-- [ ] My address (and any other account I want to add) is listed as a test user
+- [ ] The app is **In production** (or my address is listed as a test user)
 
 ## Create the OAuth client
 
@@ -72,9 +78,13 @@ sign-in. Pick your account.
 You can connect more than one Google account: once the first is connected, choose **Add another account**.
 Each account has its own access, and Piyo asks which one to use when it matters.
 
-Google will say **"Google hasn't verified this app"**. That is expected, because the app is your own. Choose
-**Advanced**, then **Go to Piyo AI (unsafe)**, check the boxes for the access you want, and continue. The page
-then says you are connected and you can close it.
+Google will say **"Google hasn't verified this app"**. That is expected, because the app is your own and
+Google has not reviewed it. Choose **Advanced**, then **Go to Piyo AI (unsafe)**, check the boxes for the access
+you want, and continue. The page then says you are connected and you can close it. You will see this warning
+each time you add an account or more access.
+
+With the app in production you can add any Google account this way. If you stayed in Testing, an account that is
+not on your Test users list is refused.
 
 :::google:::
 
