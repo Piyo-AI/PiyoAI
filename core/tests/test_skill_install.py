@@ -242,3 +242,19 @@ def test_api_skill_secrets_are_stored_in_the_keychain_and_removed_with_the_skill
     client.put("/api/skills/notes/secrets/API_KEY", json={"value": "abc123"}, headers=AUTH)
     client.delete("/api/skills/notes", headers=AUTH)  # uninstall
     assert keyring.get_password("PiyoAI", "skill.notes.API_KEY") is None
+
+
+def test_uninstall_also_removes_the_skills_python_environments(tmp_path):
+    from piyo.config import data_dir
+
+    client = make_client(tmp_path)
+    data = make_zip({"SKILL.md": skill_md()})
+    staged = client.post("/api/skills/install/preview", content=data, headers=AUTH).json()
+    client.post("/api/skills/install", json={"token": staged["token"], "approved": staged["permissions"]}, headers=AUTH)
+    envs = data_dir() / "scripts" / "skill-envs"
+    (envs / "notes-0123456789ab" / "bin").mkdir(parents=True)
+    (envs / "notes-pro-0123456789ab").mkdir()  # a different skill whose name starts the same
+    (envs / "other-0123456789ab").mkdir()
+    client.delete("/api/skills/notes", headers=AUTH)
+    assert not (envs / "notes-0123456789ab").exists()
+    assert (envs / "notes-pro-0123456789ab").exists() and (envs / "other-0123456789ab").exists()

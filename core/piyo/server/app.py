@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import secrets
+import shutil
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -1195,6 +1197,9 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e)) from None
         for secret in gone.manifest.requires.secrets if gone else []:
             delete_secret(secret_name(name, secret))
+        for env in (data_dir() / "scripts" / "skill-envs").glob(f"{name}-*"):  # its Python environments
+            if re.fullmatch(rf"{re.escape(name)}-[0-9a-f]{{12}}", env.name):  # not a skill like "<name>-pro"
+                shutil.rmtree(env, ignore_errors=True)
         skills.reload()
         skills.disabled = skill_state.set_enabled(name, True)  # leave no switch behind
 
