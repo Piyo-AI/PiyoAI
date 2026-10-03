@@ -1009,3 +1009,23 @@ button.stop:disabled {
 .schedule-form h4 {
   margin: 0;
 }
+
+.skill-editor {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.skill-editor h4 {
+  margin: 0 0 6px;
+}
+
+textarea.code {
+  width: 100%;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin: 4px 0 8px;
+}

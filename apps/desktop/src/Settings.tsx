@@ -4,6 +4,7 @@ import { api, ApiStyle, FolderEntry, inTauri, pickFolder, Provider, RunSettings,
 import { BrowserSettings } from "./BrowserSettings";
 import { MemoryPage } from "./MemoryPage";
 import { SchedulePage } from "./SchedulePage";
+import { SkillEditor } from "./SkillEditor";
 import { GoogleConnection } from "./GoogleConnection";
 import { SkillInstall } from "./SkillInstall";
 
@@ -15,6 +16,7 @@ interface Props {
   providerId: string; // the chat's current model, used by new scheduled jobs
   model: string;
   onOpenConversation: (id: string) => void;
+  onTestSkill: (name: string) => void; // start a chat that exercises a skill
   initialPage?: Page;
   /** Changes when the setup wizard opens or closes, so the skill list is read again after setup changed something. */
   refreshKey?: unknown;
@@ -30,6 +32,7 @@ export function Settings({
   providerId,
   model,
   onOpenConversation,
+  onTestSkill,
   initialPage,
   refreshKey,
 }: Props) {
@@ -129,7 +132,16 @@ export function Settings({
             )}
             {page === "web-search" && <WebSearch />}
             {page === "folders" && <Folders />}
-            {page === "skills" && <Skills onSetup={onSetup} refreshKey={refreshKey} />}
+            {page === "skills" && (
+              <Skills
+                onSetup={onSetup}
+                refreshKey={refreshKey}
+                onTest={(name) => {
+                  onTestSkill(name);
+                  onClose();
+                }}
+              />
+            )}
             {page === "browser" && <BrowserSettings />}
             {page === "memory" && <MemoryPage />}
             {page === "scheduled" && (
@@ -199,7 +211,16 @@ function SecretRow({
   );
 }
 
-function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; refreshKey?: unknown }) {
+function Skills({
+  onSetup,
+  refreshKey,
+  onTest,
+}: {
+  onSetup: (skill: string) => void;
+  refreshKey?: unknown;
+  onTest: (skill: string) => void;
+}) {
+  const [editing, setEditing] = useState<string | null | undefined>(undefined); // undefined: closed, null: new skill
   const [skills, setSkills] = useState<SkillInfo[] | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -251,6 +272,14 @@ function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; ref
       </p>
       {error && <p className="error">{error}</p>}
       <SkillInstall onChange={load} />
+      <p>
+        <button type="button" className="ghost" onClick={() => setEditing(null)} disabled={editing !== undefined}>
+          Write a skill
+        </button>
+      </p>
+      {editing !== undefined && (
+        <SkillEditor name={editing ?? undefined} onClose={() => setEditing(undefined)} onSaved={load} />
+      )}
       <GoogleConnection onChange={load} />
       {skills && skills.length === 0 && <p className="hint">No skills found.</p>}
       <ul className="providers">
@@ -260,7 +289,9 @@ function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; ref
               <strong>
                 {s.name}
                 <sup className={`pill ${s.source}`}>{s.source === "builtin" ? "Built in" : "Yours"}</sup>
-                {s.removable && !s.verified && <sup className="pill unverified">Unverified</sup>}
+                {s.removable && !s.verified && !s.install_source?.startsWith("written") && (
+                  <sup className="pill unverified">Unverified</sup>
+                )}
               </strong>
               <span className="hint skill-version">v{s.version}{s.author ? ` · ${s.author}` : ""}</span>
               <label className="check" style={{ marginLeft: "auto" }}>
@@ -287,13 +318,23 @@ function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; ref
             ))}
             {needs(s).length > 0 && <p className="hint">Needs {needs(s).join(" and ")}.</p>}
             {s.install_source && <p className="hint">Installed from {s.install_source}.</p>}
-            {s.removable && (
-              <p>
-                <button type="button" className="ghost" onClick={() => uninstall(s.name)}>
-                  Uninstall
+            <p className="install-actions">
+              {s.removable && (
+                <>
+                  <button type="button" className="ghost" onClick={() => setEditing(s.name)} disabled={editing !== undefined}>
+                    Edit
+                  </button>
+                  <button type="button" className="ghost" onClick={() => uninstall(s.name)}>
+                    Uninstall
+                  </button>
+                </>
+              )}
+              {s.enabled && (
+                <button type="button" className="ghost" onClick={() => onTest(s.name)}>
+                  Test it
                 </button>
-              </p>
-            )}
+              )}
+            </p>
             {s.has_setup && (
               <p>
                 <button

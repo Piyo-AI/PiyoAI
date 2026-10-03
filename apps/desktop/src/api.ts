@@ -240,6 +240,24 @@ export interface SkillInfo {
   verified: boolean;
 }
 
+export interface SkillCheck {
+  ok: boolean;
+  error: string | null;
+  name: string | null;
+  version: string | null;
+  permissions: string[];
+  /** Permissions the skill would gain by saving; the user has to approve them. */
+  added: string[];
+}
+
+export interface SkillVersion {
+  id: string;
+  version: string;
+  at: string;
+  /** update | edit | rollback */
+  reason: string;
+}
+
 export interface CatalogEntry {
   name: string;
   version: string;
@@ -573,6 +591,17 @@ export const api = {
     request<{ name: string; version: string }>("POST", "/api/skills/install", { token, approved }),
   cancelSkillInstall: (token: string) => request<void>("DELETE", `/api/skills/install/${token}`),
   uninstallSkill: (name: string) => request<void>("DELETE", `/api/skills/${encodeURIComponent(name)}`),
+  skillTemplate: () => request<{ skill_md: string; setup_md: string }>("GET", "/api/skills-template"),
+  skillFiles: (name: string) =>
+    request<{ skill_md: string; setup_md: string }>("GET", `/api/skills/${encodeURIComponent(name)}/files`),
+  checkSkill: (skill_md: string, name?: string) => request<SkillCheck>("POST", "/api/skills/check", { skill_md, name }),
+  createSkill: (skill_md: string, setup_md: string, approved: string[]) =>
+    request<{ name: string }>("POST", "/api/skills", { skill_md, setup_md, approved }),
+  saveSkillFiles: (name: string, skill_md: string, setup_md: string, approved: string[]) =>
+    request<{ name: string }>("PUT", `/api/skills/${encodeURIComponent(name)}/files`, { skill_md, setup_md, approved }),
+  skillHistory: (name: string) => request<SkillVersion[]>("GET", `/api/skills/${encodeURIComponent(name)}/history`),
+  rollbackSkill: (name: string, id: string, approved: string[]) =>
+    request<{ name: string }>("POST", `/api/skills/${encodeURIComponent(name)}/rollback`, { id, approved }),
   setSkillSecret: (name: string, secret: string, value: string) =>
     request<void>("PUT", `/api/skills/${encodeURIComponent(name)}/secrets/${encodeURIComponent(secret)}`, { value }),
   deleteSkillSecret: (name: string, secret: string) =>

@@ -375,6 +375,10 @@ export default function App() {
           providerId={providerId}
           model={model}
           onOpenConversation={open}
+          onTestSkill={(skill) => {
+            newChat();
+            setInput(`Use the ${skill} skill. Show me what it can do with a small example, and tell me what it will access.`);
+          }}
           initialPage={settingsPage}
           onChanged={loadProviders}
           onClose={() => {

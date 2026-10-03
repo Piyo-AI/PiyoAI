@@ -90,6 +90,24 @@ def _installed_version(path: Path) -> str | None:
         return None
 
 
+BACKUP_FILE = ".piyo-backup.json"
+
+
+def backup_skill(path: Path, backups_root: Path, reason: str, move: bool = False) -> Path:
+    """Keep a copy of a skill folder (or move it away) before it changes. Newest sorts last by name."""
+    version = _installed_version(path) or "unknown"
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
+    dest = backups_root / path.name / f"{stamp}-{uuid.uuid4().hex[:4]}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if move:
+        shutil.move(str(path), str(dest))
+    else:
+        shutil.copytree(path, dest)
+    info = {"version": version, "at": datetime.now(UTC).isoformat(timespec="seconds"), "reason": reason}
+    (dest / BACKUP_FILE).write_text(json.dumps(info), encoding="utf-8")
+    return dest
+
+
 class SkillInstaller:
     def __init__(self, user_dir: Path, work_dir: Path, builtin_names: set[str] | None = None) -> None:
         self.user_dir = user_dir
@@ -298,10 +316,7 @@ class SkillInstaller:
             shutil.rmtree(self.staging / token, ignore_errors=True)
 
     def _back_up(self, target: Path) -> None:
-        version = _installed_version(target) or "unknown"
-        dest = self.backups / target.name / f"{version}-{uuid.uuid4().hex[:6]}"
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(target), str(dest))
+        backup_skill(target, self.backups, "update", move=True)
 
     def uninstall(self, name: str) -> None:
         target = self.user_dir / name

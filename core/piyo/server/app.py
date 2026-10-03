@@ -41,6 +41,7 @@ from piyo.skills import SkillRegistry
 from piyo.scheduler import RuleError, RunResult, Scheduler, SchedulerStore, describe
 from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
 from piyo.skills.runner import ScriptRunner, secret_name
+from piyo.skills.editor import TEMPLATE, SkillEditor
 from piyo.skills.install import InstallError, SkillInstaller, read_meta
 from piyo.store import (
     AuditStore,
@@ -221,6 +222,43 @@ class EventsRead(BaseModel):
 class InstallCommitIn(BaseModel):
     token: str
     approved: list[str]
+
+
+class SkillFilesOut(BaseModel):
+    skill_md: str
+    setup_md: str
+
+
+class SkillFilesIn(BaseModel):
+    skill_md: str
+    setup_md: str = ""
+    approved: list[str] = []  # permissions the user approved that the skill did not have before
+
+
+class SkillCheckIn(BaseModel):
+    skill_md: str
+    name: str | None = None  # the skill being edited; its name cannot change
+
+
+class SkillCheckOut(BaseModel):
+    ok: bool
+    error: str | None
+    name: str | None
+    version: str | None
+    permissions: list[str]
+    added: list[str]
+
+
+class VersionOut(BaseModel):
+    id: str
+    version: str
+    at: str
+    reason: str
+
+
+class RollbackIn(BaseModel):
+    id: str
+    approved: list[str] = []
 
 
 class SkillSecretIn(BaseModel):
@@ -1115,6 +1153,55 @@ def create_app(
             delete_secret(secret_name(name, secret))
         skills.reload()
         skills.disabled = skill_state.set_enabled(name, True)  # leave no switch behind
+
+    def skill_editor() -> SkillEditor:
+        return SkillEditor(
+            skills.user_dir, data_dir() / "install", {s.manifest.name for s in skills.list() if s.source == "builtin"}
+        )
+
+    def editing(action):
+        try:
+            return action()
+        except InstallError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.get("/api/skills-template", dependencies=auth)
+    def skill_template() -> SkillFilesOut:
+        return SkillFilesOut(skill_md=TEMPLATE.format(name="my-skill", title="My skill"), setup_md="")
+
+    @app.post("/api/skills/check", dependencies=auth)
+    def check_skill_text(body: SkillCheckIn) -> SkillCheckOut:
+        found = skill_editor().check(body.skill_md, body.name)
+        return SkillCheckOut(
+            ok=found.ok, error=found.error, name=found.name, version=found.version,
+            permissions=found.permissions or [], added=found.added or [],
+        )
+
+    @app.post("/api/skills", dependencies=auth, status_code=201)
+    def create_skill(body: SkillFilesIn) -> dict:
+        skill = editing(lambda: skill_editor().create(body.skill_md, body.setup_md, body.approved))
+        skills.reload()
+        return {"name": skill.manifest.name, "version": skill.manifest.version}
+
+    @app.get("/api/skills/{name}/files", dependencies=auth)
+    def skill_files(name: str) -> SkillFilesOut:
+        return SkillFilesOut(**editing(lambda: skill_editor().read(name)))
+
+    @app.put("/api/skills/{name}/files", dependencies=auth)
+    def save_skill_files(name: str, body: SkillFilesIn) -> dict:
+        skill = editing(lambda: skill_editor().save(name, body.skill_md, body.setup_md, body.approved))
+        skills.reload()
+        return {"name": skill.manifest.name, "version": skill.manifest.version}
+
+    @app.get("/api/skills/{name}/history", dependencies=auth)
+    def skill_history(name: str) -> list[VersionOut]:
+        return [VersionOut(**vars(v)) for v in editing(lambda: skill_editor().history(name))]
+
+    @app.post("/api/skills/{name}/rollback", dependencies=auth)
+    def rollback_skill(name: str, body: RollbackIn) -> dict:
+        skill = editing(lambda: skill_editor().rollback(name, body.id, body.approved))
+        skills.reload()
+        return {"name": skill.manifest.name, "version": skill.manifest.version}
 
     def declared_secret(name: str, secret: str) -> None:
         skill = next((sk for sk in skills.list() if sk.manifest.name == name), None)
