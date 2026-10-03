@@ -1,15 +1,20 @@
 import { useEffect, useState } from "react";
 
-import { api, SkillCheck, SkillVersion } from "./api";
+import { api, SkillCheck, SkillDraft, SkillVersion } from "./api";
 import { describePermission } from "./SkillInstall";
 
 /** Writes a new skill (`name` undefined) or edits one the user installed or wrote. */
 export function SkillEditor({
   name,
+  draft,
+  learned = false,
   onClose,
   onSaved,
 }: {
   name?: string;
+  /** Start from this text instead of the saved files (a skill learned from a chat, or a proposed improvement). */
+  draft?: SkillDraft;
+  learned?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -22,7 +27,7 @@ export function SkillEditor({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const start = name ? api.skillFiles(name) : api.skillTemplate();
+    const start = draft ? Promise.resolve(draft) : name ? api.skillFiles(name) : api.skillTemplate();
     start
       .then((f) => {
         setSkillMd(f.skill_md);
@@ -31,7 +36,7 @@ export function SkillEditor({
       })
       .catch((e) => setError((e as Error).message));
     if (name) api.skillHistory(name).then(setHistory).catch(() => {});
-  }, [name]);
+  }, [name, draft]);
 
   // Live validation: ask the core (which uses the same parser as the loader) shortly after typing stops.
   useEffect(() => {
@@ -59,7 +64,7 @@ export function SkillEditor({
   const approved = check?.added ?? [];
   const save = () =>
     run(() =>
-      name ? api.saveSkillFiles(name, skillMd, setupMd, approved) : api.createSkill(skillMd, setupMd, approved),
+      name ? api.saveSkillFiles(name, skillMd, setupMd, approved) : api.createSkill(skillMd, setupMd, approved, learned),
     );
 
   const restore = (v: SkillVersion) => {
@@ -85,7 +90,22 @@ export function SkillEditor({
 
   return (
     <div className="skill-editor">
-      <h4>{name ? `Edit ${name}` : "Write a skill"}</h4>
+      <h4>{name ? (draft ? `Improve ${name}` : `Edit ${name}`) : learned ? "Review the new skill" : "Write a skill"}</h4>
+      {learned && (
+        <p className="hint">
+          Piyo drafted this from your chat. Read it and edit anything that is wrong or too specific. It is saved
+          switched off; turn it on under Settings &gt; Skills when you are happy with it.
+        </p>
+      )}
+      {draft && draft.removed.length > 0 && (
+        <p className="hint">Piyo removed personal details from the draft: {draft.removed.join(", ")}.</p>
+      )}
+      {draft && draft.diff && (
+        <details open>
+          <summary>What changes</summary>
+          <pre className="diff">{draft.diff}</pre>
+        </details>
+      )}
       <p className="hint">
         <code>SKILL.md</code> tells Piyo what to do and which tools it may use. The lines between the dashes are the
         settings; below them, write the steps in plain words. Piyo only gets the tools listed under{" "}

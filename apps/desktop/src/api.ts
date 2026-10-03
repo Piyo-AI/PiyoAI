@@ -250,6 +250,18 @@ export interface SkillCheck {
   added: string[];
 }
 
+/** A skill the model drafted from a chat (or an improvement to an existing one). Nothing is saved yet. */
+export interface SkillDraft {
+  skill_md: string;
+  setup_md: string;
+  /** Taken from the tools the chat really used. */
+  tools: string[];
+  /** What the privacy scrub took out of the draft. */
+  removed: string[];
+  /** Improvements only: what changes against the current version. */
+  diff: string;
+}
+
 export interface SkillVersion {
   id: string;
   version: string;
@@ -595,8 +607,12 @@ export const api = {
   skillFiles: (name: string) =>
     request<{ skill_md: string; setup_md: string }>("GET", `/api/skills/${encodeURIComponent(name)}/files`),
   checkSkill: (skill_md: string, name?: string) => request<SkillCheck>("POST", "/api/skills/check", { skill_md, name }),
-  createSkill: (skill_md: string, setup_md: string, approved: string[]) =>
-    request<{ name: string }>("POST", "/api/skills", { skill_md, setup_md, approved }),
+  createSkill: (skill_md: string, setup_md: string, approved: string[], learned = false) =>
+    request<{ name: string }>("POST", "/api/skills", { skill_md, setup_md, approved, learned }),
+  draftSkill: (conversation_id: string, provider: string, model: string) =>
+    request<SkillDraft>("POST", "/api/skills/draft", { conversation_id, provider, model }),
+  refineSkill: (name: string, conversation_id: string, provider: string, model: string, note = "") =>
+    request<SkillDraft>("POST", `/api/skills/${encodeURIComponent(name)}/refine`, { conversation_id, provider, model, note }),
   saveSkillFiles: (name: string, skill_md: string, setup_md: string, approved: string[]) =>
     request<{ name: string }>("PUT", `/api/skills/${encodeURIComponent(name)}/files`, { skill_md, setup_md, approved }),
   skillHistory: (name: string) => request<SkillVersion[]>("GET", `/api/skills/${encodeURIComponent(name)}/history`),

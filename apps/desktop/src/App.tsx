@@ -1,13 +1,15 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useState } from "react";
 
-import { api, inTauri, ModelInfo, onCoreExit, Provider, resetConnection, restartCore } from "./api";
+import { api, inTauri, ModelInfo, onCoreExit, Provider, resetConnection, restartCore, SkillDraft, SkillInfo } from "./api";
 import { BrowserBar } from "./BrowserBar";
 import { ChatList } from "./ChatList";
 import { ModelSettings } from "./ModelSettings";
 import { Settings, Page } from "./Settings";
 import { SetupWizard } from "./SetupWizard";
+import { SkillEditor } from "./SkillEditor";
 import { useModelWarnings } from "./useModelWarnings";
 import { useScheduler } from "./useScheduler";
+import { useSkillOffer } from "./useSkillOffer";
 import { useSetupNeeded } from "./useSetupNeeded";
 import { Tasks } from "./Tasks";
 import { ApprovalCard, ToolChip } from "./Tools";
@@ -48,6 +50,10 @@ export default function App() {
   const [modelsNote, setModelsNote] = useState("");
   const [coreError, setCoreError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [skillList, setSkillList] = useState<SkillInfo[]>([]);
+  const [learning, setLearning] = useState<{ draft: SkillDraft; name?: string } | null>(null);
+  const [learnBusy, setLearnBusy] = useState(false);
+  const [learnError, setLearnError] = useState<string | null>(null);
   const [settingsPage, setSettingsPage] = useState<Page | undefined>(undefined);
   const [wizardSkill, setWizardSkill] = useState<string | null>(null);
   const [showTasks, setShowTasks] = useState(false);
@@ -168,6 +174,27 @@ export default function App() {
   const warnings = useModelWarnings(provider, model, [models, showSettings, busy]);
   const setup = useSetupNeeded([showSettings, wizardSkill]);
   const scheduler = useScheduler(open);
+  useEffect(() => {
+    api.skills().then((r) => setSkillList(r.skills)).catch(() => {});
+  }, [showSettings, learning, busy]);
+  const skillOffer = useSkillOffer(messages, busy, conversationId, skillList);
+  const startLearning = async () => {
+    if (!conversationId || !skillOffer.offer) return;
+    setLearnError(null);
+    setLearnBusy(true);
+    try {
+      const { offer } = skillOffer;
+      const draft =
+        offer.kind === "refine" && offer.skill
+          ? await api.refineSkill(offer.skill, conversationId, providerId, model.trim())
+          : await api.draftSkill(conversationId, providerId, model.trim());
+      setLearning({ draft, name: offer.kind === "refine" ? offer.skill : undefined });
+    } catch (e) {
+      setLearnError((e as Error).message);
+    } finally {
+      setLearnBusy(false);
+    }
+  };
 
   const canSend =!!provider && !!model.trim() && !!input.trim() && !busy;
 
@@ -303,6 +330,24 @@ export default function App() {
           </div>
         </div>
       ))}
+      {skillOffer.offer && (
+        <div className="banner" role="status">
+          <p>
+            {skillOffer.offer.kind === "refine"
+              ? `Want to improve the ${skillOffer.offer.skill} skill from this chat?`
+              : "That took a few steps. Save this as a skill so Piyo can do it again?"}
+          </p>
+          {learnError && <p className="error">{learnError}</p>}
+          <div className="inline">
+            <button type="button" disabled={learnBusy} onClick={startLearning}>
+              {learnBusy ? "Drafting…" : skillOffer.offer.kind === "refine" ? "Suggest changes" : "Draft a skill"}
+            </button>
+            <button type="button" className="ghost" onClick={skillOffer.dismiss}>
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
       {scheduler.events.map((ev) => (
         <div key={ev.id} className={`banner ${ev.kind === "finished" ? "" : "warn"}`} role="status">
           <p>
@@ -388,6 +433,21 @@ export default function App() {
           onSetup={setWizardSkill}
           refreshKey={wizardSkill}
         />
+      )}
+      {learning && (
+        <div className="overlay" onClick={() => setLearning(null)}>
+          <div className="dialog settings" role="dialog" aria-label="Review skill" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-content">
+              <SkillEditor
+                name={learning.name}
+                draft={learning.draft}
+                learned={!learning.name}
+                onClose={() => setLearning(null)}
+                onSaved={() => {}}
+              />
+            </div>
+          </div>
+        </div>
       )}
       {wizardSkill && (
         <SetupWizard skill={wizardSkill} onClose={() => setWizardSkill(null)} onOpenSkill={setWizardSkill} />

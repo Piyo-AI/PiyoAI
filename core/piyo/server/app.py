@@ -37,12 +37,13 @@ from piyo.models.capabilities import ModelCaps, model_issues
 from piyo.models.prompt_tools import native_with_fallback, prompt_turn
 from piyo.models.turn import Message, stream_turn
 from piyo.safety import ApprovalRequest, PermissionGate
-from piyo.skills import SkillRegistry
+from piyo.skills import SkillError, SkillRegistry
 from piyo.scheduler import RuleError, RunResult, Scheduler, SchedulerStore, describe
 from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
-from piyo.skills.runner import ScriptRunner, secret_name
 from piyo.skills.editor import TEMPLATE, SkillEditor
 from piyo.skills.install import InstallError, SkillInstaller, read_meta
+from piyo.skills.learn import draft_from_chat, refine_from_chat, worth_a_skill
+from piyo.skills.runner import ScriptRunner, secret_name
 from piyo.store import (
     AuditStore,
     ConversationStore,
@@ -233,6 +234,22 @@ class SkillFilesIn(BaseModel):
     skill_md: str
     setup_md: str = ""
     approved: list[str] = []  # permissions the user approved that the skill did not have before
+    learned: bool = False  # drafted from a chat: stored as such and switched off until the user turns it on
+
+
+class LearnIn(BaseModel):
+    conversation_id: str
+    provider: str
+    model: str
+    note: str = ""  # refinements: what the user says went wrong
+
+
+class DraftOut(BaseModel):
+    skill_md: str
+    setup_md: str
+    tools: list[str]  # taken from what the chat really used, not from the model
+    removed: list[str]  # what the privacy scrub took out of the draft
+    diff: str  # refinements: what changes against the current version
 
 
 class SkillCheckIn(BaseModel):
@@ -1179,9 +1196,49 @@ def create_app(
 
     @app.post("/api/skills", dependencies=auth, status_code=201)
     def create_skill(body: SkillFilesIn) -> dict:
-        skill = editing(lambda: skill_editor().create(body.skill_md, body.setup_md, body.approved))
+        source = "learned from a chat" if body.learned else "written in Piyo"
+        skill = editing(lambda: skill_editor().create(body.skill_md, body.setup_md, body.approved, source))
         skills.reload()
+        if body.learned:  # a learned skill does nothing until the user has reviewed it and switched it on
+            skills.disabled = skill_state.set_enabled(skill.manifest.name, False)
         return {"name": skill.manifest.name, "version": skill.manifest.version}
+
+    async def learn_context(body: LearnIn):
+        provider = get_provider(body.provider)
+        if run_settings.get().local_only and not provider.local:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Local-only mode is on and {provider.name} is a cloud provider. Pick a local model first.",
+            )
+        conv = conversation_or_404(body.conversation_id)
+        max_tokens = min(limits.resolve(provider.id, body.model, reported.get((provider.id, body.model))), 4096)
+        return provider, conv.messages, turn_for(provider.id, body.model), max_tokens
+
+    @app.post("/api/skills/draft", dependencies=auth)
+    async def draft_skill(body: LearnIn) -> DraftOut:
+        provider, messages, turn, max_tokens = await learn_context(body)
+        if not worth_a_skill(messages):
+            raise HTTPException(status_code=400, detail="This chat did not use enough tools to learn a skill from.")
+        taken = {sk.manifest.name for sk in skills.list()}
+        try:
+            draft = await draft_from_chat(turn, provider, body.model, messages, taken, max_tokens)
+        except SkillError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from None
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=describe_error(provider, e)) from None
+        return DraftOut(**vars(draft))
+
+    @app.post("/api/skills/{name}/refine", dependencies=auth)
+    async def refine_skill(name: str, body: LearnIn) -> DraftOut:
+        provider, messages, turn, max_tokens = await learn_context(body)
+        current = editing(lambda: skill_editor().read(name))["skill_md"]
+        try:
+            draft = await refine_from_chat(turn, provider, body.model, current, messages, body.note, max_tokens)
+        except SkillError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from None
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=describe_error(provider, e)) from None
+        return DraftOut(**vars(draft))
 
     @app.get("/api/skills/{name}/files", dependencies=auth)
     def skill_files(name: str) -> SkillFilesOut:

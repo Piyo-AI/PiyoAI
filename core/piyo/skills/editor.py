@@ -120,7 +120,9 @@ class SkillEditor:
         if missing:
             raise InstallError("These permissions were not approved: " + ", ".join(missing))
 
-    def create(self, skill_md: str, setup_md: str, approved: list[str]) -> Skill:
+    def create(
+        self, skill_md: str, setup_md: str, approved: list[str], source: str = "written in Piyo"
+    ) -> Skill:
         skill_md, setup_md = _text(skill_md, "SKILL.md"), _text(setup_md, "SETUP.md")
         check = self.check(skill_md)
         if check.ok and (check.name in self.builtin_names or (self.user_dir / check.name).exists()):
@@ -131,7 +133,7 @@ class SkillEditor:
         folder.mkdir(parents=True)
         try:
             self._write(folder, skill_md, setup_md)
-            self._write_meta(folder, "written in Piyo", check.permissions)
+            self._write_meta(folder, source, check.permissions)
             return load_skill_dir(folder, "user")
         except BaseException:
             shutil.rmtree(folder, ignore_errors=True)
