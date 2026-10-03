@@ -226,6 +226,8 @@ export interface SkillInfo {
   /** Integration -> why it isn't ready (not connected, expired); empty when all are. */
   integration_issues: Record<string, string>;
   secrets: string[];
+  /** Which of them have a value stored (the values are never sent to the app). */
+  secrets_set: string[];
   /** What the skill needs from the model: vision, min_context. */
   model_needs: { vision?: boolean; min_context?: number };
   /** Why the model named in the request can't run this skill; empty when it can. */
@@ -571,6 +573,10 @@ export const api = {
     request<{ name: string; version: string }>("POST", "/api/skills/install", { token, approved }),
   cancelSkillInstall: (token: string) => request<void>("DELETE", `/api/skills/install/${token}`),
   uninstallSkill: (name: string) => request<void>("DELETE", `/api/skills/${encodeURIComponent(name)}`),
+  setSkillSecret: (name: string, secret: string, value: string) =>
+    request<void>("PUT", `/api/skills/${encodeURIComponent(name)}/secrets/${encodeURIComponent(secret)}`, { value }),
+  deleteSkillSecret: (name: string, secret: string) =>
+    request<void>("DELETE", `/api/skills/${encodeURIComponent(name)}/secrets/${encodeURIComponent(secret)}`),
   setSkillEnabled: (name: string, enabled: boolean) => request<void>("PUT", `/api/skills/${encodeURIComponent(name)}`, { enabled }),
   audit: (limit: number, offset: number) =>
     request<AuditReport>("GET", `/api/audit?limit=${limit}&offset=${offset}`),

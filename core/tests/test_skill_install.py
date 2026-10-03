@@ -1,3 +1,4 @@
+import json
 import io
 import stat
 import zipfile
@@ -216,3 +217,28 @@ def test_package_hash_is_stable_and_sees_every_change(tmp_path):
     assert changed != first
     (a / "scripts" / "run.py").rename(a / "scripts" / "go.py")  # a rename changes it too
     assert package_hash(a) not in (first, changed)
+
+
+def test_api_skill_secrets_are_stored_in_the_keychain_and_removed_with_the_skill(tmp_path):
+    import keyring
+
+    client = make_client(tmp_path)
+    data = make_zip({"SKILL.md": skill_md(extra="  secrets: [API_KEY]\n")})
+    token = client.post("/api/skills/install/preview", content=data, headers=AUTH).json()
+    client.post("/api/skills/install", json={"token": token["token"], "approved": token["permissions"]}, headers=AUTH)
+    listed = client.get("/api/skills", headers=AUTH).json()["skills"][0]
+    assert listed["secrets"] == ["API_KEY"] and listed["secrets_set"] == []
+
+    assert client.put("/api/skills/notes/secrets/API_KEY", json={"value": "  "}, headers=AUTH).status_code == 400
+    assert client.put("/api/skills/notes/secrets/OTHER", json={"value": "x"}, headers=AUTH).status_code == 404
+    assert client.put("/api/skills/nope/secrets/API_KEY", json={"value": "x"}, headers=AUTH).status_code == 404
+    assert client.put("/api/skills/notes/secrets/API_KEY", json={"value": "abc123"}, headers=AUTH).status_code == 204
+    assert keyring.get_password("PiyoAI", "skill.notes.API_KEY") == "abc123"
+    listed = client.get("/api/skills", headers=AUTH).json()["skills"][0]
+    assert listed["secrets_set"] == ["API_KEY"] and "abc123" not in json.dumps(listed)
+
+    assert client.delete("/api/skills/notes/secrets/API_KEY", headers=AUTH).status_code == 204
+    assert client.get("/api/skills", headers=AUTH).json()["skills"][0]["secrets_set"] == []
+    client.put("/api/skills/notes/secrets/API_KEY", json={"value": "abc123"}, headers=AUTH)
+    client.delete("/api/skills/notes", headers=AUTH)  # uninstall
+    assert keyring.get_password("PiyoAI", "skill.notes.API_KEY") is None

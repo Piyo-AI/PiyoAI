@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
 from piyo.config import data_dir
+from piyo.config.secrets import delete_secret, get_secret, set_secret
 from piyo.config.browser_rules import BrowserRules
 from piyo.config.folders import ApprovedFolders, FolderGrant
 from piyo.config.model_limits import ContextLimits, ModelLimits
@@ -39,6 +40,7 @@ from piyo.safety import ApprovalRequest, PermissionGate
 from piyo.skills import SkillRegistry
 from piyo.scheduler import RuleError, RunResult, Scheduler, SchedulerStore, describe
 from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
+from piyo.skills.runner import ScriptRunner, secret_name
 from piyo.skills.install import InstallError, SkillInstaller, read_meta
 from piyo.store import (
     AuditStore,
@@ -58,6 +60,7 @@ from piyo.store.memory import SENSITIVE_CATEGORIES, MemoryRefused, MemoryStore
 from piyo.tools.gmail import gmail_tools
 from piyo.tools.memory import memory_tools, profile_prompt
 from piyo.tools.schedule import schedule_tools
+from piyo.tools.scripts import script_tools
 from piyo.tools.google import google_account_tools
 from piyo.tools.search import search_tools
 from piyo.tools.weather import weather_tools
@@ -90,6 +93,7 @@ class SkillOut(BaseModel):
     integrations: list[str] = []
     integration_issues: dict[str, str] = {}  # integration -> why it isn't ready; empty when all are
     secrets: list[str] = []
+    secrets_set: list[str] = []  # which of them have a value in the keychain (never the values)
     model_needs: dict = {}  # what the skill needs from the model: vision, min_context
     model_issues: list[str] = []  # why the model named in the request can't run it; empty when fine
     removable: bool = False  # installed by the user (not built in), so it can be uninstalled
@@ -217,6 +221,10 @@ class EventsRead(BaseModel):
 class InstallCommitIn(BaseModel):
     token: str
     approved: list[str]
+
+
+class SkillSecretIn(BaseModel):
+    value: str
 
 
 class SkillEnabledIn(BaseModel):
@@ -524,6 +532,7 @@ def create_app(
     tools = ToolRegistry(
         core_tools()
         + memory_tools(memory)
+        + script_tools(ScriptRunner(data_dir() / "scripts", get_secret), skills)
         + file_tools(folders)
         + web_tools()
         + browser_tools(browser)
@@ -962,6 +971,7 @@ def create_app(
                         if (issue := integration_issue(i))
                     },
                     secrets=sk.manifest.requires.secrets,
+                    secrets_set=[n for n in sk.manifest.requires.secrets if get_secret(secret_name(sk.manifest.name, n))],
                     model_needs=sk.manifest.requires.model.model_dump(exclude_defaults=True),
                     model_issues=model_issues(sk.manifest.requires.model, caps) if caps else [],
                     removable=sk.source == "user",
@@ -1096,12 +1106,34 @@ def create_app(
 
     @app.delete("/api/skills/{name}", dependencies=auth, status_code=204)
     def uninstall_skill(name: str) -> None:
+        gone = next((sk for sk in skills.list() if sk.manifest.name == name), None)
         try:
             skill_installer().uninstall(name)
         except InstallError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
+        for secret in gone.manifest.requires.secrets if gone else []:
+            delete_secret(secret_name(name, secret))
         skills.reload()
         skills.disabled = skill_state.set_enabled(name, True)  # leave no switch behind
+
+    def declared_secret(name: str, secret: str) -> None:
+        skill = next((sk for sk in skills.list() if sk.manifest.name == name), None)
+        if skill is None:
+            raise HTTPException(status_code=404, detail="unknown skill")
+        if secret not in skill.manifest.requires.secrets:
+            raise HTTPException(status_code=404, detail="this skill does not use that secret")
+
+    @app.put("/api/skills/{name}/secrets/{secret}", dependencies=auth, status_code=204)
+    def set_skill_secret(name: str, secret: str, body: SkillSecretIn) -> None:
+        declared_secret(name, secret)
+        if not body.value.strip():
+            raise HTTPException(status_code=400, detail="The value is empty.")
+        set_secret(secret_name(name, secret), body.value.strip())
+
+    @app.delete("/api/skills/{name}/secrets/{secret}", dependencies=auth, status_code=204)
+    def delete_skill_secret(name: str, secret: str) -> None:
+        declared_secret(name, secret)
+        delete_secret(secret_name(name, secret))
 
     @app.put("/api/skills/{name}", dependencies=auth, status_code=204)
     def set_skill_enabled(name: str, body: SkillEnabledIn) -> None:

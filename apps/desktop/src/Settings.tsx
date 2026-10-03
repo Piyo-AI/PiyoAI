@@ -150,6 +150,55 @@ export function Settings({
   );
 }
 
+function SecretRow({
+  skill,
+  secret,
+  isSet,
+  onChange,
+}: {
+  skill: string;
+  secret: string;
+  isSet: boolean;
+  onChange: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const run = async (fn: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await fn();
+      setValue("");
+      onChange();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  return (
+    <div className="memory-add">
+      <span className="hint" style={{ alignSelf: "center" }}>
+        {secret} ({isSet ? "stored in your keychain" : "not set"})
+      </span>
+      <input
+        type="password"
+        autoComplete="off"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={isSet ? "Replace the value" : "Paste the value"}
+        aria-label={`${secret} for ${skill}`}
+      />
+      <button type="button" disabled={!value.trim()} onClick={() => run(() => api.setSkillSecret(skill, secret, value))}>
+        Save
+      </button>
+      {isSet && (
+        <button type="button" className="ghost" onClick={() => run(() => api.deleteSkillSecret(skill, secret))}>
+          Remove
+        </button>
+      )}
+      {error && <span className="error">{error}</span>}
+    </div>
+  );
+}
+
 function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; refreshKey?: unknown }) {
   const [skills, setSkills] = useState<SkillInfo[] | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -227,7 +276,15 @@ function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; ref
                 {name}: {why}
               </p>
             ))}
-            {s.secrets.length > 0 && <p className="hint">Needs secrets: {s.secrets.join(", ")}</p>}
+            {s.secrets.map((secret) => (
+              <SecretRow
+                key={secret}
+                skill={s.name}
+                secret={secret}
+                isSet={s.secrets_set.includes(secret)}
+                onChange={load}
+              />
+            ))}
             {needs(s).length > 0 && <p className="hint">Needs {needs(s).join(" and ")}.</p>}
             {s.install_source && <p className="hint">Installed from {s.install_source}.</p>}
             {s.removable && (
