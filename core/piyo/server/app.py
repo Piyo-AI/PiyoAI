@@ -13,7 +13,12 @@ from pydantic import BaseModel, ValidationError
 from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
 from piyo.config.folders import ApprovedFolders, FolderGrant
-from piyo.config.model_limits import ModelLimits
+from piyo.config.skill_state import SkillState
+from piyo.config.tool_modes import ToolModes
+from piyo.config.model_limits import ContextLimits, ModelLimits
+from piyo.config.model_vision import ModelVision
+from piyo.config.model_prices import ModelPrices, Price
+from piyo.config.run_settings import RunSettings
 from piyo.models import (
     MissingApiKey,
     ModelInfo,
@@ -23,10 +28,20 @@ from piyo.models import (
     describe_error,
     list_models,
 )
+from piyo.models.capabilities import ModelCaps, model_issues
+from piyo.models.prompt_tools import native_with_fallback, prompt_turn
 from piyo.models.turn import Message, stream_turn
 from piyo.safety import ApprovalRequest, PermissionGate
 from piyo.skills import SkillRegistry
-from piyo.store import ConversationStore, UnknownConversation, complete_tool_calls
+from piyo.store import (
+    AuditStore,
+    ConversationStore,
+    RunLog,
+    RunStore,
+    UnknownConversation,
+    UnknownRun,
+    complete_tool_calls,
+)
 from piyo.tools import ToolRegistry, core_tools
 from piyo.tools import search as search_mod
 from piyo.tools.files import file_tools
@@ -43,6 +58,7 @@ ALLOWED_ORIGINS = [
 
 # Tool output shown in the app is a preview; the model still gets the full result.
 UI_OUTPUT_CHARS = 2000
+WHY_CHARS = 400  # the model's reason shown on an approval card
 
 
 class SkillOut(BaseModel):
@@ -52,6 +68,16 @@ class SkillOut(BaseModel):
     source: str
     tools: list[str]
     has_setup: bool
+    enabled: bool
+    author: str | None = None
+    risk: str | None = None
+    integrations: list[str] = []
+    secrets: list[str] = []
+    model_needs: dict = {}  # what the skill needs from the model: vision, min_context
+    model_issues: list[str] = []  # why the model named in the request can't run it; empty when fine
+
+
+class SkillEnabledIn(BaseModel):
     enabled: bool
 
 
@@ -81,6 +107,69 @@ class OutputLimitOut(BaseModel):
     output_limit: int  # what will be sent as max_tokens
     custom: bool  # set by the user
     reported_max: int | None  # the model's own maximum, when the provider tells us
+
+
+class ContextLimitIn(BaseModel):
+    provider: str
+    model: str
+    tokens: int | None = None  # None removes the custom setting
+
+
+class ContextLimitOut(BaseModel):
+    context_limit: int  # the window Piyo fits the conversation into
+    custom: bool  # set by the user
+    reported: int | None  # the model's own window, when the provider tells us
+
+
+class ToolModeIn(BaseModel):
+    provider: str
+    model: str
+    mode: str  # auto | native | prompt
+
+
+class ToolModeOut(BaseModel):
+    mode: str  # the user's choice
+    effective: str  # what a run will use: native | prompt
+    reason: str
+
+
+class RunSettingsIn(BaseModel):
+    max_steps: int | None = None
+    max_tokens: int | None = None
+    timeout_s: int | None = None
+    local_only: bool | None = None
+
+
+class RunSettingsOut(BaseModel):
+    max_steps: int
+    max_tokens: int
+    timeout_s: int
+    local_only: bool
+
+
+class PriceIn(BaseModel):
+    provider: str
+    model: str
+    input: float | None = None  # USD per million input tokens; both None removes the setting
+    output: float | None = None
+
+
+class PriceOut(BaseModel):
+    input: float | None  # what a run is costed with; None when unknown
+    output: float | None
+    source: str  # custom | reported | local | unknown
+
+
+class VisionIn(BaseModel):
+    provider: str
+    model: str
+    mode: str  # auto | yes | no
+
+
+class VisionOut(BaseModel):
+    mode: str  # the user's choice
+    effective: bool | None  # what skill checks use; None when unknown
+    reported: bool | None  # what the provider says, when it says
 
 
 class FoldersIn(BaseModel):
@@ -115,6 +204,46 @@ class ConversationDetail(ConversationOut):
     active_skills: list[str]
 
 
+class RunOut(BaseModel):
+    id: str
+    conversation_id: str
+    started_at: str
+    provider: str
+    model: str
+    request: str
+    outcome: str
+    error: str | None
+    duration_ms: int
+    input_tokens: int
+    output_tokens: int
+    tokens_estimated: bool
+    cost_usd: float | None  # None when the model's price is unknown
+
+
+class RunDetail(RunOut):
+    steps: list[dict]
+
+
+class AuditEntryOut(BaseModel):
+    seq: int
+    at: str
+    run_id: str
+    conversation_id: str
+    tool: str
+    summary: str
+    arguments: dict
+    args_digest: str
+    why: str
+    decision: str  # allowed | declined
+    hash: str
+
+
+class AuditOut(BaseModel):
+    entries: list[AuditEntryOut]  # newest first
+    verified: bool  # the whole chain checks out
+    problem: str | None
+
+
 class TitleIn(BaseModel):
     title: str
 
@@ -134,10 +263,25 @@ def create_app(
 ) -> FastAPI:
     registry = registry or ProviderRegistry()
     skills = skills or SkillRegistry()
+    skill_state = SkillState()
+    skills.disabled |= skill_state.disabled()  # the user's switches survive restarts
     store = store or ConversationStore()
+    run_store = RunStore(store)
+    audit = AuditStore(store)
     limits = ModelLimits()
+    context_limits = ContextLimits()
+    tool_modes = ToolModes()
+    run_settings = RunSettings()
+    prices = ModelPrices()
+    vision = ModelVision()
+    reported_prices: dict[tuple[str, str], Price] = {}
+    # What we learned about models' tool support: reported by the provider, or from a failed request.
+    reported_tools: dict[tuple[str, str], bool] = {}
+    learned_no_tools: set[tuple[str, str]] = set()
     # Output maximums providers reported in model lists the app has loaded.
     reported: dict[tuple[str, str], int] = {}
+    reported_context: dict[tuple[str, str], int] = {}  # context windows, same source
+    reported_vision: dict[tuple[str, str], bool] = {}
     folders = ApprovedFolders()
     tools = ToolRegistry(core_tools() + file_tools(folders) + web_tools() + search_tools())
     app = FastAPI(title="Piyo Core", version=__version__)
@@ -236,6 +380,14 @@ def create_app(
             for m in found:
                 if m.max_output:
                     reported[(provider.id, m.id)] = m.max_output
+                if m.tools is not None:
+                    reported_tools[(provider.id, m.id)] = m.tools
+                if m.context_length:
+                    reported_context[(provider.id, m.id)] = m.context_length
+                if m.price_input is not None and m.price_output is not None:
+                    reported_prices[(provider.id, m.id)] = Price(m.price_input, m.price_output)
+                if m.vision is not None:
+                    reported_vision[(provider.id, m.id)] = m.vision
             return found
         except MissingApiKey as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
@@ -272,8 +424,169 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e)) from None
         return output_limit_info(body.provider, model)
 
+    def context_limit_info(provider_id: str, model: str) -> ContextLimitOut:
+        cap = reported_context.get((provider_id, model))
+        return ContextLimitOut(
+            context_limit=context_limits.resolve(provider_id, model, cap),
+            custom=context_limits.get(provider_id, model) is not None,
+            reported=cap,
+        )
+
+    @app.get("/api/context-limit", dependencies=auth)
+    def get_context_limit(provider: str, model: str) -> ContextLimitOut:
+        get_provider(provider)
+        return context_limit_info(provider, model)
+
+    @app.put("/api/context-limit", dependencies=auth)
+    def set_context_limit(body: ContextLimitIn) -> ContextLimitOut:
+        get_provider(body.provider)
+        model = body.model.strip()
+        if not model:
+            raise HTTPException(status_code=400, detail="Pick a model first.")
+        try:
+            context_limits.set(body.provider, model, body.tokens)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return context_limit_info(body.provider, model)
+
+    def tool_mode_info(provider_id: str, model: str) -> ToolModeOut:
+        mode = tool_modes.get(provider_id, model)
+        key = (provider_id, model)
+        if mode != "auto":
+            return ToolModeOut(mode=mode, effective=mode, reason="Set by you.")
+        if reported_tools.get(key) is False:
+            return ToolModeOut(
+                mode=mode, effective="prompt", reason="The provider says this model has no tool calling."
+            )
+        if key in learned_no_tools:
+            return ToolModeOut(
+                mode=mode, effective="prompt", reason="The provider rejected tool calling for this model."
+            )
+        return ToolModeOut(mode=mode, effective="native", reason="Assumed; switches itself if rejected.")
+
+    def turn_for(provider_id: str, model: str):
+        """The turn function for a run: native calling, or tools as text, per the model's mode."""
+        key = (provider_id, model)
+        if tool_mode_info(provider_id, model).effective == "prompt":
+
+            def as_text(provider, name, messages, specs, system, max_tokens):
+                return prompt_turn(turn_fn, provider, name, messages, specs, system, max_tokens)
+
+            return as_text
+
+        def native(provider, name, messages, specs, system, max_tokens):
+            if tool_modes.get(provider_id, model) == "native":  # forced: no fallback
+                return turn_fn(provider, name, messages, specs, system, max_tokens)
+            if key in learned_no_tools:  # learned earlier in this run
+                return prompt_turn(turn_fn, provider, name, messages, specs, system, max_tokens)
+            return native_with_fallback(
+                turn_fn, lambda: learned_no_tools.add(key), provider, name, messages, specs,
+                system, max_tokens,
+            )
+
+        return native
+
+    @app.get("/api/tool-mode", dependencies=auth)
+    def get_tool_mode(provider: str, model: str) -> ToolModeOut:
+        get_provider(provider)
+        return tool_mode_info(provider, model)
+
+    @app.put("/api/tool-mode", dependencies=auth)
+    def set_tool_mode(body: ToolModeIn) -> ToolModeOut:
+        get_provider(body.provider)
+        model = body.model.strip()
+        if not model:
+            raise HTTPException(status_code=400, detail="Pick a model first.")
+        try:
+            tool_modes.set(body.provider, model, body.mode)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        learned_no_tools.discard((body.provider, model))  # the user's word replaces a guess
+        return tool_mode_info(body.provider, model)
+
+    def price_for(provider: Provider, model: str) -> Price | None:
+        return prices.resolve(
+            provider.id, model, reported_prices.get((provider.id, model)), provider.local
+        )
+
+    def price_info(provider: Provider, model: str) -> PriceOut:
+        price = price_for(provider, model)
+        if provider.local:
+            source = "local"
+        elif prices.get(provider.id, model):
+            source = "custom"
+        else:
+            source = "reported" if price else "unknown"
+        return PriceOut(
+            input=price.input if price else None, output=price.output if price else None, source=source
+        )
+
+    @app.get("/api/price", dependencies=auth)
+    def get_price(provider: str, model: str) -> PriceOut:
+        return price_info(get_provider(provider), model)
+
+    @app.put("/api/price", dependencies=auth)
+    def set_price(body: PriceIn) -> PriceOut:
+        provider = get_provider(body.provider)
+        model = body.model.strip()
+        if not model:
+            raise HTTPException(status_code=400, detail="Pick a model first.")
+        if (body.input is None) != (body.output is None):
+            raise HTTPException(status_code=400, detail="Give both the input and the output price.")
+        try:
+            price = None if body.input is None else Price(body.input, body.output)
+            prices.set(provider.id, model, price)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return price_info(provider, model)
+
+    def caps_for(provider_id: str, model: str) -> ModelCaps:
+        key = (provider_id, model)
+        return ModelCaps(
+            model=model,
+            context=context_limits.resolve(provider_id, model, reported_context.get(key)),
+            vision=vision.resolve(provider_id, model, reported_vision.get(key)),
+        )
+
+    def vision_info(provider_id: str, model: str) -> VisionOut:
+        reported = reported_vision.get((provider_id, model))
+        return VisionOut(
+            mode=vision.get(provider_id, model),
+            effective=vision.resolve(provider_id, model, reported),
+            reported=reported,
+        )
+
+    @app.get("/api/vision", dependencies=auth)
+    def get_vision(provider: str, model: str) -> VisionOut:
+        get_provider(provider)
+        return vision_info(provider, model)
+
+    @app.put("/api/vision", dependencies=auth)
+    def set_vision(body: VisionIn) -> VisionOut:
+        get_provider(body.provider)
+        model = body.model.strip()
+        if not model:
+            raise HTTPException(status_code=400, detail="Pick a model first.")
+        try:
+            vision.set(body.provider, model, body.mode)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return vision_info(body.provider, model)
+
+    @app.get("/api/run-settings", dependencies=auth)
+    def get_run_settings() -> RunSettingsOut:
+        return RunSettingsOut(**vars(run_settings.get()))
+
+    @app.put("/api/run-settings", dependencies=auth)
+    def set_run_settings(body: RunSettingsIn) -> RunSettingsOut:
+        try:
+            return RunSettingsOut(**vars(run_settings.update(**body.model_dump())))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
     @app.get("/api/skills", dependencies=auth)
-    def list_skills() -> SkillsOut:
+    def list_skills(provider: str | None = None, model: str | None = None) -> SkillsOut:
+        caps = caps_for(provider, model) if provider and model else None
         return SkillsOut(
             skills=[
                 SkillOut(
@@ -284,11 +597,23 @@ def create_app(
                     tools=sk.manifest.requires.tools,
                     has_setup=sk.has_setup,
                     enabled=sk.manifest.name not in skills.disabled,
+                    author=sk.manifest.author,
+                    risk=sk.manifest.risk,
+                    integrations=sk.manifest.requires.integrations,
+                    secrets=sk.manifest.requires.secrets,
+                    model_needs=sk.manifest.requires.model.model_dump(exclude_defaults=True),
+                    model_issues=model_issues(sk.manifest.requires.model, caps) if caps else [],
                 )
                 for sk in skills.list()
             ],
             errors=skills.errors,
         )
+
+    @app.put("/api/skills/{name}", dependencies=auth, status_code=204)
+    def set_skill_enabled(name: str, body: SkillEnabledIn) -> None:
+        if not any(sk.manifest.name == name for sk in skills.list()):
+            raise HTTPException(status_code=404, detail="unknown skill")
+        skills.disabled = skill_state.set_enabled(name, body.enabled)
 
     def conversation_or_404(conversation_id: str):
         try:
@@ -317,6 +642,26 @@ def create_app(
         conversation_or_404(conversation_id)
         store.delete(conversation_id)
 
+    @app.get("/api/runs", dependencies=auth)
+    def list_runs(conversation_id: str | None = None, limit: int = 100) -> list[RunOut]:
+        return [RunOut(**vars(r)) for r in run_store.list(conversation_id, min(max(limit, 1), 500))]
+
+    @app.get("/api/runs/{run_id}", dependencies=auth)
+    def get_run(run_id: str) -> RunDetail:
+        try:
+            return RunDetail(**vars(run_store.get(run_id)))
+        except UnknownRun:
+            raise HTTPException(status_code=404, detail="unknown run") from None
+
+    @app.get("/api/audit", dependencies=auth)
+    def get_audit(limit: int = 200) -> AuditOut:
+        report = audit.report(min(max(limit, 1), 1000))
+        return AuditOut(
+            entries=[AuditEntryOut(**vars(e)) for e in report.entries],
+            verified=report.verified,
+            problem=report.problem,
+        )
+
     @app.websocket("/ws/chat")
     async def chat(ws: WebSocket) -> None:
         # Browsers can't set headers on WebSockets, so the token comes as a query param.
@@ -327,7 +672,32 @@ def create_app(
         pending: dict[str, asyncio.Future[bool]] = {}  # approval id -> the user's answer
         run: asyncio.Task | None = None
 
+        current_log: RunLog | None = None  # the run in progress, for the approval hook
+
         async def approver(req: ApprovalRequest) -> bool:
+            approved = await ask(req)
+            if current_log:
+                current_log.step(
+                    "approval",
+                    tool=req.tool,
+                    arguments=req.arguments,
+                    summary=req.summary,
+                    why=req.why,
+                    approved=approved,
+                )
+            audit.record(
+                current_log.id if current_log else "",
+                current_log.conversation_id if current_log else "",
+                req.tool,
+                req.summary,
+                req.arguments,
+                req.why,
+                approved,
+                current_log.secrets if current_log else (),
+            )
+            return approved
+
+        async def ask(req: ApprovalRequest) -> bool:
             approval_id = secrets.token_hex(4)
             answer = asyncio.get_running_loop().create_future()
             pending[approval_id] = answer
@@ -338,6 +708,8 @@ def create_app(
                         "id": approval_id,
                         "tool": req.tool,
                         "arguments": req.arguments,
+                        "summary": req.summary,
+                        "why": req.why[:WHY_CHARS],
                     }
                 )
                 return await answer
@@ -345,6 +717,18 @@ def create_app(
                 pending.pop(approval_id, None)
 
         async def run_conversation(req: ChatRequest, provider: Provider) -> None:
+            budget = run_settings.get()
+            if budget.local_only and not provider.local:
+                await ws.send_json(
+                    {
+                        "type": "error",
+                        "message": (
+                            f"Local-only mode is on, and {provider.name} is a cloud provider. "
+                            "Pick a local model, or turn local-only off in Settings."
+                        ),
+                    }
+                )
+                return
             agent = Agent(
                 provider,
                 req.model,
@@ -354,7 +738,14 @@ def create_app(
                 max_tokens=limits.resolve(
                     provider.id, req.model, reported.get((provider.id, req.model))
                 ),
-                turn_fn=turn_fn,
+                turn_fn=turn_for(provider.id, req.model),
+                context_tokens=context_limits.resolve(
+                    provider.id, req.model, reported_context.get((provider.id, req.model))
+                ),
+                max_steps=budget.max_steps,
+                max_total_tokens=budget.max_tokens,
+                timeout_s=budget.timeout_s,
+                model_caps=caps_for(provider.id, req.model),
             )
             if req.conversation_id:
                 try:
@@ -373,6 +764,23 @@ def create_app(
             store.append(conv.id, [*history[len(conv.messages):], messages[-1]])
             saved_from = len(messages)
             saved = False
+            nonlocal current_log
+            log = current_log = RunLog(
+                conv.id,
+                provider.id,
+                req.model,
+                req.message,
+                price=price_for(provider, req.model),
+                secrets=(provider.api_key() or "", search_mod.get_key() or ""),
+            )
+            agent.log = log
+            logged = False
+
+            def save_log(outcome: str, error: str | None = None) -> None:
+                nonlocal logged
+                if not logged:  # once per run, whichever path ends it first
+                    logged = True
+                    run_store.save(log, outcome, error)
 
             def save() -> None:
                 nonlocal saved
@@ -407,13 +815,19 @@ def create_app(
                         )
                     elif isinstance(event, Finished):
                         save()  # before "done", so a list refresh right after it sees this run
+                        save_log(event.reason)
                         await ws.send_json({"type": "done", "reason": event.reason})
             except (WebSocketDisconnect, asyncio.CancelledError):
+                save_log("cancelled")
                 raise
             except Exception as e:
-                await ws.send_json({"type": "error", "message": describe_error(provider, e)})
+                message = describe_error(provider, e)
+                save_log("error", message)
+                await ws.send_json({"type": "error", "message": message})
             finally:
                 save()
+                save_log("error", "The run ended unexpectedly.")
+                current_log = None
 
         async def run_agent(req: ChatRequest, provider: Provider) -> None:
             """Whatever goes wrong, the app must get an answer instead of waiting forever."""

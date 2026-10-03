@@ -1,7 +1,10 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
-import { api, ModelInfo, OutputLimit, Provider } from "./api";
+import { api, ModelInfo, Provider } from "./api";
+import { ModelSettings } from "./ModelSettings";
 import { Settings } from "./Settings";
+import { useModelWarnings } from "./useModelWarnings";
+import { Tasks } from "./Tasks";
 import { ApprovalCard, ToolChip } from "./Tools";
 import { useChat } from "./useChat";
 
@@ -39,10 +42,8 @@ export default function App() {
   const [modelsNote, setModelsNote] = useState("");
   const [coreError, setCoreError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showTasks, setShowTasks] = useState(false);
   const [input, setInput] = useState("");
-  const [limit, setLimit] = useState<OutputLimit | null>(null);
-  const [limitText, setLimitText] = useState("");
-  const [limitError, setLimitError] = useState("");
   const { messages, busy, isStopping, approvals, conversations, conversationId, send, respond, stop, newChat, open, remove } =
     useChat();
   const bottom = useRef<HTMLDivElement>(null);
@@ -107,60 +108,6 @@ export default function App() {
     if (provider?.default_model && !model) setModel(provider.default_model);
   }, [provider?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The reply-length cap for the selected model. Re-read after the model list loads, because that
-  // is when the core learns the model's own maximum.
-  useEffect(() => {
-    setLimitError("");
-    if (!providerId || !model.trim()) {
-      setLimit(null);
-      return;
-    }
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      api
-        .outputLimit(providerId, model.trim())
-        .then((l) => {
-          if (cancelled) return;
-          setLimit(l);
-          setLimitText(String(l.output_limit));
-        })
-        .catch(() => !cancelled && setLimit(null));
-    }, 250);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [providerId, model, models]);
-
-  const saveLimit = async () => {
-    if (!limit) return;
-    const n = Number(limitText);
-    setLimitError("");
-    if (!Number.isInteger(n) || n <= 0) {
-      setLimitText(String(limit.output_limit));
-      return;
-    }
-    if (n === limit.output_limit) return;
-    try {
-      const l = await api.setOutputLimit(providerId, model.trim(), n);
-      setLimit(l);
-      setLimitText(String(l.output_limit));
-    } catch (e) {
-      setLimitError((e as Error).message);
-    }
-  };
-
-  const resetLimit = async () => {
-    try {
-      const l = await api.setOutputLimit(providerId, model.trim(), null);
-      setLimit(l);
-      setLimitText(String(l.output_limit));
-      setLimitError("");
-    } catch (e) {
-      setLimitError((e as Error).message);
-    }
-  };
-
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -176,6 +123,8 @@ export default function App() {
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
   }, [busy, stop]);
+
+  const warnings = useModelWarnings(provider, model, [models, showSettings, busy]);
 
   const canSend =!!provider && !!model.trim() && !!input.trim() && !busy;
 
@@ -221,36 +170,7 @@ export default function App() {
               {current.free ? "free" : "paid"}
             </span>
           )}
-          {limit && (
-            <label
-              className="check"
-              title={
-                limitError ||
-                `Longest reply Piyo will ask for, in tokens. ${
-                  limit.reported_max ? `This model's maximum is ${limit.reported_max}. ` : "The model's maximum is unknown. "
-                }${limit.custom ? "Set by you." : "Automatic."}`
-              }
-            >
-              Max reply
-              <input
-                className="limit"
-                type="number"
-                min={256}
-                step={256}
-                value={limitText}
-                onChange={(e) => setLimitText(e.target.value)}
-                onBlur={saveLimit}
-                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                aria-invalid={!!limitError}
-              />
-              {limit.custom && (
-                <button type="button" className="ghost" onClick={resetLimit} title="Back to automatic">
-                  ↺
-                </button>
-              )}
-              {limitError && <span className="error">{limitError}</span>}
-            </label>
-          )}
+          <ModelSettings providerId={providerId} model={model} models={models} busy={busy} />
           {hasPricing && (
             <label className="check" title="Only list models that cost nothing to use">
               <input type="checkbox" checked={freeOnly} onChange={(e) => toggleFreeOnly(e.target.checked)} />
@@ -261,6 +181,9 @@ export default function App() {
         <div className="actions">
           <button className="ghost" onClick={newChat} disabled={busy || messages.length === 0}>
             New chat
+          </button>
+          <button className="ghost" onClick={() => setShowTasks(true)}>
+            Tasks
           </button>
           <button className="ghost" onClick={() => setShowSettings(true)}>
             Settings
@@ -326,6 +249,13 @@ export default function App() {
         <div ref={bottom} />
       </main>
 
+      {warnings.length > 0 && (
+        <div className="banner warn" role="status">
+          {warnings.map((w) => (
+            <p key={w}>{w}</p>
+          ))}
+        </div>
+      )}
       <form className="composer" onSubmit={submit}>
         <textarea
           value={input}
@@ -347,6 +277,7 @@ export default function App() {
       </div>
       </div>
 
+      {showTasks && <Tasks conversationId={conversationId} onClose={() => setShowTasks(false)} />}
       {showSettings && (
         <Settings providers={providers} onChanged={loadProviders} onClose={() => setShowSettings(false)} />
       )}

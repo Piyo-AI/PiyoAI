@@ -20,7 +20,7 @@ from piyo.models.turn import Message
 
 DEFAULT_TITLE = "New chat"
 TITLE_CHARS = 60
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE conversations (
@@ -35,6 +35,44 @@ CREATE TABLE messages (
     seq INTEGER NOT NULL,
     body TEXT NOT NULL,
     PRIMARY KEY (conversation_id, seq)
+);
+"""
+
+# v2: the task log (one row per agent run, one per step), see `piyo.store.runs`.
+RUNS_SCHEMA = """
+CREATE TABLE runs (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    started_at TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    request TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    error TEXT,
+    duration_ms INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    tokens_estimated INTEGER NOT NULL
+);
+CREATE INDEX runs_by_start ON runs (started_at);
+CREATE TABLE run_steps (
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    PRIMARY KEY (run_id, seq)
+);
+"""
+
+# v3: what a run cost in US dollars; NULL when the model's price is unknown.
+RUNS_V3 = "ALTER TABLE runs ADD COLUMN cost_usd REAL"
+
+# v4: the approval audit chain, see `piyo.store.audit`. No foreign keys: it outlives runs and chats.
+AUDIT_SCHEMA = """
+CREATE TABLE audit (
+    seq INTEGER PRIMARY KEY,
+    prev_hash TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    body TEXT NOT NULL
 );
 """
 
@@ -109,6 +147,10 @@ class ConversationStore:
     def path(self) -> Path:
         return self._path or data_dir() / "piyo.db"
 
+    def db(self):
+        """A connection in a transaction, for sibling stores (`RunStore`) in the same file."""
+        return self._db()
+
     @contextmanager
     def _db(self):
         path = self.path
@@ -130,6 +172,13 @@ class ConversationStore:
             )
         if version < 1:
             db.executescript(SCHEMA)
+        if version < 2:
+            db.executescript(RUNS_SCHEMA)
+        if version < 3:
+            db.execute(RUNS_V3)
+        if version < 4:
+            db.executescript(AUDIT_SCHEMA)
+        if version < SCHEMA_VERSION:
             db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def create(self, title: str = DEFAULT_TITLE) -> ConversationSummary:

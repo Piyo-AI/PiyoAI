@@ -17,6 +17,8 @@ class ApprovalRequest:
     tool: str
     arguments: dict
     risk: Risk
+    summary: str = ""  # built by the tool from the real arguments
+    why: str = ""  # the model's own words for this turn; shown as its claim, not as fact
 
 
 # Asks the user (via the app) and returns their answer.
@@ -27,13 +29,14 @@ Approver = Callable[[ApprovalRequest], Awaitable[bool]]
 class GateResult:
     allowed: bool
     reason: str = ""
+    declined: bool = False  # the user said no (as opposed to "never" or "no approver")
 
 
 class PermissionGate:
     def __init__(self, approver: Approver | None = None) -> None:
         self._approver = approver
 
-    async def authorize(self, tool: Tool, arguments: dict) -> GateResult:
+    async def authorize(self, tool: Tool, arguments: dict, why: str = "") -> GateResult:
         risk = tool.risk_of(arguments)
         if risk is Risk.AUTO:
             return GateResult(True)
@@ -43,6 +46,7 @@ class PermissionGate:
             )
         if self._approver is None:
             return GateResult(False, "This action needs the user's approval and none is available.")
-        if await self._approver(ApprovalRequest(tool.name, arguments, risk)):
+        request = ApprovalRequest(tool.name, arguments, risk, tool.summary_of(arguments), why)
+        if await self._approver(request):
             return GateResult(True)
-        return GateResult(False, "The user declined this action.")
+        return GateResult(False, "The user declined this action.", declined=True)

@@ -30,9 +30,13 @@ export function ApprovalCard({ approval, onAnswer }: { approval: Approval; onAns
   return (
     <div className="approval" role="alertdialog" aria-label="Approval needed">
       <div>
-        <strong>Piyo wants to run {label(approval.tool)}</strong>
+        <strong>{approval.summary || `Piyo wants to run ${label(approval.tool)}`}</strong>
       </div>
-      <pre>{JSON.stringify(approval.arguments, null, 2)}</pre>
+      {approval.why && <p className="approval-why">Piyo says: “{approval.why}”</p>}
+      <details className="approval-details">
+        <summary>Details ({label(approval.tool)})</summary>
+        <pre>{JSON.stringify(approval.arguments, null, 2)}</pre>
+      </details>
       <div className="approval-actions">
         <button onClick={() => onAnswer(true)}>Allow</button>
         <button className="ghost" onClick={() => onAnswer(false)}>

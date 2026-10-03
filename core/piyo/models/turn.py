@@ -53,6 +53,9 @@ class TurnDone:
     text: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     truncated: bool = False  # hit max_tokens
+    # What the provider reported; None when it did not (the task log then estimates).
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 TurnEvent = TextDelta | TurnDone
@@ -189,6 +192,8 @@ async def _stream_anthropic(provider, model, messages, tools, system, max_tokens
             if b.type == "tool_use"
         ],
         truncated=final.stop_reason == "max_tokens",
+        input_tokens=final.usage.input_tokens,
+        output_tokens=final.usage.output_tokens,
     )
 
 
@@ -205,7 +210,9 @@ async def _stream_openai(provider, model, messages, tools, system, max_tokens):
     text: list[str] = []
     partial: dict[int, dict] = {}  # tool call index -> {id, name, args}
     finish: str | None = None
+    usage = None
     async for chunk in stream:
+        usage = getattr(chunk, "usage", None) or usage  # only some servers send it
         if not chunk.choices:
             continue
         choice = chunk.choices[0]
@@ -233,4 +240,10 @@ async def _stream_openai(provider, model, messages, tools, system, max_tokens):
                 parse_error=error,
             )
         )
-    yield TurnDone(text="".join(text), tool_calls=calls, truncated=finish == "length")
+    yield TurnDone(
+        text="".join(text),
+        tool_calls=calls,
+        truncated=finish == "length",
+        input_tokens=getattr(usage, "prompt_tokens", None),
+        output_tokens=getattr(usage, "completion_tokens", None),
+    )

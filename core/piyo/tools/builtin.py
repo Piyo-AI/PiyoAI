@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from piyo.models.capabilities import model_issues
 from piyo.tools.base import RunContext, Tool
 
 
@@ -13,6 +14,12 @@ async def _load_skill(args: dict, ctx: RunContext) -> str:
     if skill is None:
         known = ", ".join(s.manifest.name for s in ctx.skills.enabled()) or "none"
         return f"No skill named {name!r}. Available skills: {known}."
+    if ctx.model_caps and (issues := model_issues(skill.manifest.requires.model, ctx.model_caps)):
+        return (
+            f"The skill {name!r} can't run with the current model: {'; '.join(issues)}. "
+            "It was not loaded. Tell the user this and what to change; don't attempt the task "
+            "without the skill."
+        )
     ctx.active_skills.add(skill.manifest.name)
     parts = [f"# Skill: {skill.manifest.name}", "", skill.body.strip()]
     if skill.scripts:

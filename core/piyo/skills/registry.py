@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from piyo.config import skills_dir
+from piyo.models.capabilities import ModelCaps, model_issues
 from piyo.skills.manifest import Skill, SkillError, load_skill_dir
 
 
@@ -63,12 +64,20 @@ class SkillRegistry:
     def enabled(self) -> list[Skill]:
         return [s for s in self.list() if s.manifest.name not in self.disabled]
 
-    def catalog_prompt(self) -> str:
-        """The always-in-context part: one line per enabled skill."""
+    def catalog_prompt(self, caps: ModelCaps | None = None) -> str:
+        """The always-in-context part: one line per enabled skill.
+
+        Skills the current model can't serve are marked, so the model tells the user instead of trying.
+        """
         skills = self.enabled()
         if not skills:
             return ""
-        lines = [f"- {s.manifest.name}: {s.manifest.description}" for s in skills]
+        lines = []
+        for s in skills:
+            line = f"- {s.manifest.name}: {s.manifest.description}"
+            if caps and (issues := model_issues(s.manifest.requires.model, caps)):
+                line += f" [NOT USABLE with this model: {'; '.join(issues)}]"
+            lines.append(line)
         return (
             "Skills you can use. When a request matches one, call load_skill with its name "
             "and follow its instructions:\n" + "\n".join(lines)

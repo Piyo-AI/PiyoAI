@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from piyo.models.capabilities import ModelCaps
 from piyo.models.turn import ToolSpec
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ class RunContext:
 
     skills: SkillRegistry
     active_skills: set[str] = field(default_factory=set)
+    model_caps: ModelCaps | None = None  # what the selected model can do; None skips the check
 
     def granted_tools(self) -> set[str]:
         """Tools unlocked by the skills loaded so far (union of their `requires.tools`)."""
@@ -53,6 +55,9 @@ class Tool:
     # Lets a tool's own code relax `risk` for a specific call (for example inside a folder the user
     # trusted). Set by tool authors only; a skill can't reach it. Errors fall back to `risk`.
     risk_for: Callable[[dict], Risk] | None = None
+    # One plain sentence saying what a call will do, built from its real arguments by the tool's own
+    # code (never from model text), shown on the approval card. Errors fall back to a generic line.
+    summarize: Callable[[dict], str] | None = None
     # Core tools are always available; the rest must be granted by a loaded skill.
     core: bool = False
 
@@ -67,6 +72,15 @@ class Tool:
             return self.risk_for(args)
         except Exception:
             return self.risk
+
+    def summary_of(self, args: dict) -> str:
+        if self.summarize is not None:
+            try:
+                return self.summarize(args)
+            except Exception:
+                pass
+        shown = ", ".join(f"{k}: {v}" for k, v in args.items())
+        return f"Run {self.name}" + (f" with {shown[:200]}" if shown else "")
 
     def spec(self) -> ToolSpec:
         return ToolSpec(

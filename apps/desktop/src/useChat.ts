@@ -21,10 +21,16 @@ export interface Approval {
   id: string;
   tool: string;
   arguments: Record<string, unknown>;
+  /** One plain sentence from the tool itself about what will happen. */
+  summary: string;
+  /** What the model said when it asked; shown as its claim. */
+  why: string;
 }
 
 const NOTES: Partial<Record<string, string>> = {
   step_limit: "Stopped: reached the step limit for one request.",
+  token_limit: "Stopped: this request used up its token budget.",
+  timeout: "Stopped: this request ran out of time.",
   truncated: "The reply was cut off by the reply-length limit. You can raise Max reply next to the model.",
   cancelled: "Stopped.",
 };
@@ -128,7 +134,7 @@ export function useChat() {
         }));
         break;
       case "approval_request":
-        setApprovals((a) => [...a, { id: e.id, tool: e.tool, arguments: e.arguments }]);
+        setApprovals((a) => [...a, { id: e.id, tool: e.tool, arguments: e.arguments, summary: e.summary ?? "", why: e.why ?? "" }]);
         break;
       case "done": {
         const note = NOTES[e.reason];

@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 from piyo.config.folders import ApprovedFolders
+from piyo.safety.untrusted import wrap_untrusted
 from piyo.tools.base import Risk, RunContext, Tool
 
 MAX_READ_BYTES = 100_000
@@ -52,6 +53,21 @@ class FileTools:
             return False
         return any(g.auto_changes and g.path.resolve() == root for g in self._folders.list())
 
+    # One-line descriptions for the approval card, from the real arguments (see `Tool.summarize`).
+    def summary_write(self, args: dict) -> str:
+        n = len(args.get("content") or "")
+        verb = "Replace the contents of" if args.get("overwrite") else "Create the file"
+        return f"{verb} {args.get('path')} ({n} characters)"
+
+    def summary_create(self, args: dict) -> str:
+        return f"Create the folder {args.get('path')}"
+
+    def summary_move(self, args: dict) -> str:
+        return f"Move {args.get('source')} to {args.get('destination')}"
+
+    def summary_delete(self, args: dict) -> str:
+        return f"Permanently delete {args.get('path')}"
+
     def risk_create(self, args: dict) -> Risk:
         return Risk.AUTO if self._auto(args.get("path")) else Risk.CONFIRM
 
@@ -90,7 +106,8 @@ class FileTools:
         ]
         if len(entries) > MAX_LIST_ENTRIES:
             lines.append(f"... {len(entries) - MAX_LIST_ENTRIES} more not shown")
-        return "\n".join(lines) or "(empty folder)"
+        # File names are chosen by whoever made the file, so they are outside text too.
+        return wrap_untrusted("\n".join(lines) or "(empty folder)", f"folder: {path}")
 
     async def read(self, args: dict, ctx: RunContext) -> str:
         path, _ = self._resolve(args.get("path"))
@@ -101,7 +118,7 @@ class FileTools:
         text = data[:MAX_READ_BYTES].decode("utf-8", errors="replace")
         if len(data) > MAX_READ_BYTES:
             text += f"\n[truncated at {MAX_READ_BYTES} bytes]"
-        return text
+        return wrap_untrusted(text, f"file: {path}")
 
     async def write(self, args: dict, ctx: RunContext) -> str:
         path, _ = self._resolve(args.get("path"))
@@ -202,6 +219,7 @@ def file_tools(folders: ApprovedFolders) -> list[Tool]:
             handler=impl.write,
             risk=Risk.CONFIRM,
             risk_for=impl.risk_write,
+            summarize=impl.summary_write,
         ),
         Tool(
             name="files.create_folder",
@@ -210,6 +228,7 @@ def file_tools(folders: ApprovedFolders) -> list[Tool]:
             handler=impl.create_folder,
             risk=Risk.CONFIRM,
             risk_for=impl.risk_create,
+            summarize=impl.summary_create,
         ),
         Tool(
             name="files.move",
@@ -221,6 +240,7 @@ def file_tools(folders: ApprovedFolders) -> list[Tool]:
             handler=impl.move,
             risk=Risk.CONFIRM,
             risk_for=impl.risk_move,
+            summarize=impl.summary_move,
         ),
         Tool(
             name="files.delete",
@@ -228,5 +248,6 @@ def file_tools(folders: ApprovedFolders) -> list[Tool]:
             parameters=schema(["path"], path=path),
             handler=impl.delete,
             risk=Risk.CONFIRM,
+            summarize=impl.summary_delete,
         ),
     ]

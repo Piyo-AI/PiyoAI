@@ -16,6 +16,7 @@ DEFAULT_OUTPUT_TOKENS = 4096
 # When a provider reports a huge maximum, still ask for less: some providers (OpenRouter) hold
 # credit for the full requested size.
 AUTO_CEILING = 16_384
+DEFAULT_CONTEXT_TOKENS = 32_000
 MIN_OUTPUT_TOKENS = 256
 MAX_OUTPUT_TOKENS = 200_000
 
@@ -23,12 +24,16 @@ MAX_OUTPUT_TOKENS = 200_000
 class ModelLimits:
     """Persisted user overrides, `{provider_id: {model_id: tokens}}`, re-read on each call."""
 
+    filename = "model_limits.json"
+    minimum = MIN_OUTPUT_TOKENS
+    maximum = MAX_OUTPUT_TOKENS
+
     def __init__(self, path: Path | None = None) -> None:
         self._path = path
 
     @property
     def path(self) -> Path:
-        return self._path or data_dir() / "model_limits.json"
+        return self._path or data_dir() / self.filename
 
     def _load(self) -> dict[str, dict[str, int]]:
         try:
@@ -62,10 +67,8 @@ class ModelLimits:
         if tokens is None:
             data.get(provider_id, {}).pop(model, None)
         else:
-            if not MIN_OUTPUT_TOKENS <= tokens <= MAX_OUTPUT_TOKENS:
-                raise ValueError(
-                    f"Use a number between {MIN_OUTPUT_TOKENS} and {MAX_OUTPUT_TOKENS}."
-                )
+            if not self.minimum <= tokens <= self.maximum:
+                raise ValueError(f"Use a number between {self.minimum} and {self.maximum}.")
             data.setdefault(provider_id, {})[model] = tokens
         self.path.write_text(json.dumps(data), encoding="utf-8")
 
@@ -76,3 +79,16 @@ class ModelLimits:
         if reported:
             return min(reported, AUTO_CEILING)
         return DEFAULT_OUTPUT_TOKENS
+
+
+class ContextLimits(ModelLimits):
+    """Per-model context window (input + output) the user declares, e.g. a local model run with a
+    small context. Without one, the provider-reported window, then a default."""
+
+    filename = "context_limits.json"
+    minimum = 1024
+    maximum = 10_000_000
+
+    def resolve(self, provider_id: str, model: str, reported: int | None = None) -> int:
+        custom = self.get(provider_id, model)
+        return custom or reported or DEFAULT_CONTEXT_TOKENS

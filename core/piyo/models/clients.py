@@ -32,6 +32,10 @@ class ModelInfo(BaseModel):
     # Largest reply the model can produce, when the provider says so.
     max_output: int | None = None
     tools: bool | None = None
+    vision: bool | None = None  # accepts image input
+    # US dollars per million tokens, when the provider says so.
+    price_input: float | None = None
+    price_output: float | None = None
 
 
 def _is_zero(value: object) -> bool:
@@ -39,6 +43,15 @@ def _is_zero(value: object) -> bool:
         return float(value) == 0  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return False
+
+
+def _per_million(value: object) -> float | None:
+    """OpenRouter prices are dollars per token as strings; negative means variable pricing."""
+    try:
+        price = float(value) * 1_000_000  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return price if price >= 0 else None
 
 
 def parse_openrouter_models(payload: dict) -> list[ModelInfo]:
@@ -53,6 +66,7 @@ def parse_openrouter_models(payload: dict) -> list[ModelInfo]:
             )
         params = m.get("supported_parameters")
         cap = (m.get("top_provider") or {}).get("max_completion_tokens")
+        modalities = (m.get("architecture") or {}).get("input_modalities")
         models.append(
             ModelInfo(
                 id=m["id"],
@@ -60,6 +74,9 @@ def parse_openrouter_models(payload: dict) -> list[ModelInfo]:
                 context_length=m.get("context_length"),
                 max_output=cap if isinstance(cap, int) and cap > 0 else None,
                 tools=None if params is None else "tools" in params,
+                price_input=_per_million((pricing or {}).get("prompt")),
+                price_output=_per_million((pricing or {}).get("completion")),
+                vision=None if not isinstance(modalities, list) else "image" in modalities,
             )
         )
     return sorted(models, key=lambda m: m.id)

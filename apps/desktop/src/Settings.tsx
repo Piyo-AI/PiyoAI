@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 
-import { api, ApiStyle, FolderEntry, Provider } from "./api";
+import { api, ApiStyle, FolderEntry, Provider, RunSettings, SkillInfo } from "./api";
 
 interface Props {
   providers: Provider[];
@@ -8,42 +8,268 @@ interface Props {
   onClose: () => void;
 }
 
+type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "limits";
+
 export function Settings({ providers, onChanged, onClose }: Props) {
+  const [page, setPage] = useState<Page>("providers");
   const [error, setError] = useState<string | null>(null);
 
-  const run = async (fn: () => Promise<unknown>) => {
+  const go = (p: Page) => {
+    setError(null);
+    setPage(p);
+  };
+
+  /** Runs a change and reports whether it worked, so a page can move on after a success. */
+  const run = async (fn: () => Promise<unknown>): Promise<boolean> => {
     setError(null);
     try {
       await fn();
       onChanged();
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    }
+  };
+
+  const inProviders = page === "providers" || page === "add-provider";
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="dialog settings" role="dialog" aria-label="Settings" onClick={(e) => e.stopPropagation()}>
+        <header>
+          <h2>Settings</h2>
+          <button className="ghost" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <div className="settings-body">
+          <nav className="settings-nav" aria-label="Settings sections">
+            <button className={`nav-item ${inProviders ? "active" : ""}`} onClick={() => go("providers")}>
+              Providers
+            </button>
+            {inProviders && (
+              <div className="nav-sub">
+                <button className={`nav-item ${page === "providers" ? "active" : ""}`} onClick={() => go("providers")}>
+                  Provider list
+                </button>
+                <button
+                  className={`nav-item ${page === "add-provider" ? "active" : ""}`}
+                  onClick={() => go("add-provider")}
+                >
+                  Add provider
+                </button>
+              </div>
+            )}
+            <button className={`nav-item ${page === "web-search" ? "active" : ""}`} onClick={() => go("web-search")}>
+              Web search
+            </button>
+            <button className={`nav-item ${page === "folders" ? "active" : ""}`} onClick={() => go("folders")}>
+              Folders
+            </button>
+            <button className={`nav-item ${page === "skills" ? "active" : ""}`} onClick={() => go("skills")}>
+              Skills
+            </button>
+            <button className={`nav-item ${page === "limits" ? "active" : ""}`} onClick={() => go("limits")}>
+              Limits
+            </button>
+          </nav>
+          <div className="settings-content">
+            {page === "providers" && (
+              <>
+                <h3>Model providers</h3>
+                <p className="hint">
+                  API keys are stored in your operating system's keychain, never in a file. Local providers need no
+                  key.
+                </p>
+                {error && <p className="error">{error}</p>}
+                <ul className="providers">
+                  {providers.map((p) => (
+                    <ProviderRow key={p.id} provider={p} run={run} />
+                  ))}
+                </ul>
+              </>
+            )}
+            {page === "add-provider" && (
+              <>
+                {error && <p className="error">{error}</p>}
+                <AddProvider run={run} onAdded={() => go("providers")} />
+              </>
+            )}
+            {page === "web-search" && <WebSearch />}
+            {page === "folders" && <Folders />}
+            {page === "skills" && <Skills />}
+            {page === "limits" && <Limits />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Skills() {
+  const [skills, setSkills] = useState<SkillInfo[] | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () =>
+    api
+      .skills()
+      .then((r) => {
+        setSkills(r.skills);
+        setErrors(r.errors);
+      })
+      .catch((e) => setError((e as Error).message));
+  useEffect(() => {
+    load();
+  }, []);
+
+  const toggle = async (name: string, enabled: boolean) => {
+    setError(null);
+    try {
+      await api.setSkillEnabled(name, enabled);
+      await load();
     } catch (e) {
       setError((e as Error).message);
     }
   };
 
+  const needs = (s: SkillInfo) => [
+    s.model_needs.vision ? "a model that can read images" : "",
+    s.model_needs.min_context ? `at least ${s.model_needs.min_context} tokens of context` : "",
+  ].filter(Boolean);
+
   return (
-    <div className="overlay" onClick={onClose}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <header>
-          <h2>Model providers</h2>
-          <button className="ghost" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
-        </header>
-        <p className="hint">
-          API keys are stored in your operating system's keychain, never in a file. Local providers need no key.
-        </p>
-        {error && <p className="error">{error}</p>}
-        <ul className="providers">
-          {providers.map((p) => (
-            <ProviderRow key={p.id} provider={p} run={run} />
-          ))}
-        </ul>
-        <AddProvider run={run} />
-        <WebSearch />
-        <Folders />
-      </div>
-    </div>
+    <section className="folders">
+      <h3>Skills</h3>
+      <p className="hint">
+        Skills are procedures Piyo can follow. A skill can only use the tools listed here, and every risky action still
+        asks you first. Switching one off hides it from Piyo; it is remembered after a restart.
+      </p>
+      {error && <p className="error">{error}</p>}
+      {skills && skills.length === 0 && <p className="hint">No skills found.</p>}
+      <ul className="providers">
+        {skills?.map((s) => (
+          <li key={s.name}>
+            <div className="row-head">
+              <strong>
+                {s.name}
+                <sup className={`pill ${s.source}`}>{s.source === "builtin" ? "Built in" : "Yours"}</sup>
+              </strong>
+              <span className="hint skill-version">v{s.version}{s.author ? ` · ${s.author}` : ""}</span>
+              <label className="check" style={{ marginLeft: "auto" }}>
+                <input type="checkbox" checked={s.enabled} onChange={(e) => toggle(s.name, e.target.checked)} />
+                On
+              </label>
+            </div>
+            <p className="hint">{s.description}</p>
+            <p className="hint">Tools: {s.tools.length ? s.tools.join(", ") : "none"}</p>
+            {s.integrations.length > 0 && <p className="hint">Integrations: {s.integrations.join(", ")}</p>}
+            {s.secrets.length > 0 && <p className="hint">Needs secrets: {s.secrets.join(", ")}</p>}
+            {needs(s).length > 0 && <p className="hint">Needs {needs(s).join(" and ")}.</p>}
+            {s.has_setup && <p className="hint">Has setup steps.</p>}
+          </li>
+        ))}
+      </ul>
+      {Object.keys(errors).length > 0 && (
+        <>
+          <h3>Skills that did not load</h3>
+          <ul className="providers">
+            {Object.entries(errors).map(([folder, why]) => (
+              <li key={folder}>
+                <strong>{folder}</strong>
+                <p className="error">{why}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+function Limits() {
+  const [saved, setSaved] = useState<RunSettings | null>(null);
+  const [steps, setSteps] = useState("");
+  const [tokens, setTokens] = useState("");
+  const [minutes, setMinutes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const show = (s: RunSettings) => {
+    setSaved(s);
+    setSteps(String(s.max_steps));
+    setTokens(String(s.max_tokens));
+    setMinutes(String(+(s.timeout_s / 60).toFixed(2)));
+  };
+  useEffect(() => {
+    api
+      .runSettings()
+      .then(show)
+      .catch((e) => setError((e as Error).message));
+  }, []);
+
+  const save = async (changes: Partial<RunSettings>) => {
+    setError(null);
+    try {
+      show(await api.setRunSettings(changes));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const dirty =
+    saved != null &&
+    (Number(steps) !== saved.max_steps ||
+      Number(tokens) !== saved.max_tokens ||
+      Number(minutes) * 60 !== saved.timeout_s);
+
+  return (
+    <section className="folders">
+      <h3>Limits for one request</h3>
+      <p className="hint">
+        A request stops cleanly when it reaches any of these. Time spent waiting for your approval does not count.
+      </p>
+      {error && <p className="error">{error}</p>}
+      {saved && (
+        <>
+          <form
+            className="limits"
+            onSubmit={(e) => {
+              e.preventDefault();
+              save({ max_steps: Number(steps), max_tokens: Number(tokens), timeout_s: Math.round(Number(minutes) * 60) });
+            }}
+          >
+            <label>
+              Steps (model turns)
+              <input type="number" min={1} max={200} value={steps} onChange={(e) => setSteps(e.target.value)} />
+            </label>
+            <label>
+              Tokens (input + output)
+              <input type="number" min={1000} step={1000} value={tokens} onChange={(e) => setTokens(e.target.value)} />
+            </label>
+            <label>
+              Time (minutes)
+              <input type="number" min={1} value={minutes} onChange={(e) => setMinutes(e.target.value)} />
+            </label>
+            <button type="submit" disabled={!dirty}>
+              Save
+            </button>
+          </form>
+          <h3>Local only</h3>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={saved.local_only}
+              onChange={(e) => save({ local_only: e.target.checked })}
+            />
+            Only use models that run on this computer
+          </label>
+          <p className="hint">
+            With this on, cloud providers are refused, so nothing you type or any file Piyo reads is sent to one.
+          </p>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -194,7 +420,7 @@ function Folders() {
   );
 }
 
-function ProviderRow({ provider: p, run }: { provider: Provider; run: (fn: () => Promise<unknown>) => void }) {
+function ProviderRow({ provider: p, run }: { provider: Provider; run: (fn: () => Promise<unknown>) => unknown }) {
   const [key, setKey] = useState("");
 
   return (
@@ -247,7 +473,7 @@ function ProviderRow({ provider: p, run }: { provider: Provider; run: (fn: () =>
   );
 }
 
-function AddProvider({ run }: { run: (fn: () => Promise<unknown>) => void }) {
+function AddProvider({ run, onAdded }: { run: (fn: () => Promise<unknown>) => Promise<boolean>; onAdded: () => void }) {
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [style, setStyle] = useState<ApiStyle>("openai");
@@ -256,7 +482,7 @@ function AddProvider({ run }: { run: (fn: () => Promise<unknown>) => void }) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
-    run(() =>
+    void run(() =>
       api.addProvider({
         id,
         name: name.trim(),
@@ -265,9 +491,7 @@ function AddProvider({ run }: { run: (fn: () => Promise<unknown>) => void }) {
         requires_key: requiresKey,
         local: /localhost|127\.0\.0\.1|\[::1\]/.test(baseUrl),
       }),
-    );
-    setName("");
-    setBaseUrl("");
+    ).then((ok) => ok && onAdded());
   };
 
   return (

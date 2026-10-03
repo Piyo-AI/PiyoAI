@@ -1,7 +1,13 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from piyo.config.model_limits import AUTO_CEILING, DEFAULT_OUTPUT_TOKENS, ModelLimits
+from piyo.config.model_limits import (
+    AUTO_CEILING,
+    DEFAULT_CONTEXT_TOKENS,
+    DEFAULT_OUTPUT_TOKENS,
+    ContextLimits,
+    ModelLimits,
+)
 from piyo.models import ModelInfo
 from piyo.models.clients import parse_openrouter_models
 from piyo.models.turn import TextDelta, TurnDone
@@ -121,3 +127,32 @@ def test_limit_api_validation_and_auth():
     assert missing.status_code == 404
     assert put(client, model="  ", tokens=999).status_code == 400
     assert client.get("/api/output-limit?provider=nope&model=m", headers=AUTH).status_code == 404
+
+
+def test_context_limit_setting_reaches_the_agent(monkeypatch):
+    async def fake_list(provider):
+        return [ModelInfo(id="m", context_length=64_000)]
+
+    monkeypatch.setattr(server, "list_models", fake_list)
+    client = TestClient(server.create_app(TOKEN))
+    url = "/api/context-limit?provider=ollama&model=m"
+    assert client.get(url, headers=AUTH).json() == {
+        "context_limit": DEFAULT_CONTEXT_TOKENS, "custom": False, "reported": None,
+    }
+    client.get("/api/providers/ollama/models", headers=AUTH)
+    assert client.get(url, headers=AUTH).json()["context_limit"] == 64_000
+    put_ctx = lambda tokens: client.put(  # noqa: E731
+        "/api/context-limit", headers=AUTH, json={"provider": "ollama", "model": "m", "tokens": tokens}
+    )
+    assert put_ctx(4096).json() == {"context_limit": 4096, "custom": True, "reported": 64_000}
+    assert put_ctx(10).status_code == 400
+    assert put_ctx(None).json()["custom"] is False
+    assert client.put("/api/context-limit", json={}).status_code == 401
+    assert client.get("/api/context-limit?provider=nope&model=m", headers=AUTH).status_code == 404
+
+
+def test_context_limits_persist_separately_from_output_limits(tmp_path):
+    out, ctx = ModelLimits(tmp_path / "o.json"), ContextLimits(tmp_path / "c.json")
+    ctx.set("p", "m", 8192)
+    assert out.get("p", "m") is None and ctx.resolve("p", "m", 64_000) == 8192
+    assert ContextLimits(tmp_path / "x.json").resolve("p", "m", None) == DEFAULT_CONTEXT_TOKENS

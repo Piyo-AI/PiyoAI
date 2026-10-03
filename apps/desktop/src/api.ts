@@ -34,6 +34,101 @@ export interface OutputLimit {
   reported_max: number | null;
 }
 
+/** What a run on this model is costed with, in US dollars per million tokens. */
+export interface Price {
+  input: number | null;
+  output: number | null;
+  source: "custom" | "reported" | "local" | "unknown";
+}
+
+/** Whether the model can read images, for skills that need it. */
+export interface Vision {
+  mode: "auto" | "yes" | "no";
+  /** What skill checks use; null when neither you nor the provider said. */
+  effective: boolean | null;
+  reported: boolean | null;
+}
+
+export interface ContextLimit {
+  /** The window Piyo fits the conversation into, in tokens. */
+  context_limit: number;
+  /** True when the user set it; otherwise it is the automatic value. */
+  custom: boolean;
+  /** The model's own window, when the provider reports it. */
+  reported: number | null;
+}
+
+export interface ToolMode {
+  /** The user's choice. */
+  mode: "auto" | "native" | "prompt";
+  /** What a run will use: the model's own tool calling, or tools written as text. */
+  effective: "native" | "prompt";
+  reason: string;
+}
+
+/** Per-run budget and the local-only switch. */
+export interface RunSettings {
+  max_steps: number;
+  max_tokens: number;
+  /** Seconds of wall clock, not counting time spent waiting for an approval. */
+  timeout_s: number;
+  local_only: boolean;
+}
+
+export interface RunInfo {
+  id: string;
+  conversation_id: string;
+  started_at: string;
+  provider: string;
+  model: string;
+  request: string;
+  /** done | step_limit | token_limit | timeout | truncated | cancelled | error */
+  outcome: string;
+  error: string | null;
+  duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  /** True when the provider did not report usage and the counts are guesses. */
+  tokens_estimated: boolean;
+  /** US dollars; null when the model's price is unknown, 0 for local models. */
+  cost_usd: number | null;
+}
+
+export interface RunStep {
+  kind: "model" | "tool" | "approval" | "skill";
+  at: string;
+  duration_ms: number | null;
+  data: Record<string, unknown>;
+}
+
+export interface AuditEntry {
+  seq: number;
+  at: string;
+  run_id: string;
+  conversation_id: string;
+  tool: string;
+  summary: string;
+  arguments: Record<string, unknown>;
+  /** SHA-256 of the exact arguments the decision was about. */
+  args_digest: string;
+  /** What the model said when it asked. A claim, not a fact. */
+  why: string;
+  decision: "allowed" | "declined";
+  hash: string;
+}
+
+export interface AuditReport {
+  /** Newest first. */
+  entries: AuditEntry[];
+  /** False when an entry was edited or removed. */
+  verified: boolean;
+  problem: string | null;
+}
+
+export interface RunDetail extends RunInfo {
+  steps: RunStep[];
+}
+
 export interface NewProvider {
   id: string;
   name: string;
@@ -53,8 +148,8 @@ export type ChatEvent =
   | { type: "delta"; text: string }
   | { type: "tool_start"; id: string; name: string; arguments: Record<string, unknown> }
   | { type: "tool_end"; id: string; name: string; output: string; is_error: boolean }
-  | { type: "approval_request"; id: string; tool: string; arguments: Record<string, unknown> }
-  | { type: "done"; reason: "done" | "step_limit" | "truncated" | "cancelled" }
+  | { type: "approval_request"; id: string; tool: string; arguments: Record<string, unknown>; summary?: string; why?: string }
+  | { type: "done"; reason: "done" | "step_limit" | "token_limit" | "timeout" | "truncated" | "cancelled" }
   | { type: "error"; message: string };
 
 export interface ConversationInfo {
@@ -85,6 +180,14 @@ export interface SkillInfo {
   tools: string[];
   has_setup: boolean;
   enabled: boolean;
+  author: string | null;
+  risk: string | null;
+  integrations: string[];
+  secrets: string[];
+  /** What the skill needs from the model: vision, min_context. */
+  model_needs: { vision?: boolean; min_context?: number };
+  /** Why the model named in the request can't run this skill; empty when it can. */
+  model_issues: string[];
 }
 
 export interface FolderEntry {
@@ -143,14 +246,29 @@ export const api = {
   removeProvider: (id: string) => request<void>("DELETE", `/api/providers/${id}`),
   setKey: (id: string, key: string) => request<void>("PUT", `/api/providers/${id}/key`, { key }),
   deleteKey: (id: string) => request<void>("DELETE", `/api/providers/${id}/key`),
-  skills: () => request<{ skills: SkillInfo[]; errors: Record<string, string> }>("GET", "/api/skills"),
+  skills: (provider?: string, model?: string) =>
+    request<{ skills: SkillInfo[]; errors: Record<string, string> }>(
+      "GET",
+      provider && model ? `/api/skills?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}` : "/api/skills",
+    ),
   searchStatus: () => request<{ provider: string; has_key: boolean; docs_url: string }>("GET", "/api/search"),
   setSearchKey: (key: string) => request<void>("PUT", "/api/search/key", { key }),
   deleteSearchKey: () => request<void>("DELETE", "/api/search/key"),
   outputLimit: (provider: string, model: string) =>
     request<OutputLimit>("GET", `/api/output-limit?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
+  contextLimit: (provider: string, model: string) =>
+    request<ContextLimit>("GET", `/api/context-limit?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
+  setContextLimit: (provider: string, model: string, tokens: number | null) =>
+    request<ContextLimit>("PUT", "/api/context-limit", { provider, model, tokens }),
   setOutputLimit: (provider: string, model: string, tokens: number | null) =>
     request<OutputLimit>("PUT", "/api/output-limit", { provider, model, tokens }),
+  toolMode: (provider: string, model: string) =>
+    request<ToolMode>("GET", `/api/tool-mode?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
+  setToolMode: (provider: string, model: string, mode: ToolMode["mode"]) =>
+    request<ToolMode>("PUT", "/api/tool-mode", { provider, model, mode }),
+  runs: (conversationId?: string) =>
+    request<RunInfo[]>("GET", `/api/runs${conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : ""}`),
+  run: (id: string) => request<RunDetail>("GET", `/api/runs/${id}`),
   conversations: () => request<ConversationInfo[]>("GET", "/api/conversations"),
   conversation: (id: string) => request<ConversationDetail>("GET", `/api/conversations/${id}`),
   renameConversation: (id: string, title: string) =>
@@ -158,6 +276,18 @@ export const api = {
   deleteConversation: (id: string) => request<void>("DELETE", `/api/conversations/${id}`),
   folders: () => request<{ folders: FolderEntry[] }>("GET", "/api/folders"),
   setFolders: (folders: FolderEntry[]) => request<{ folders: FolderEntry[] }>("PUT", "/api/folders", { folders }),
+  price: (provider: string, model: string) =>
+    request<Price>("GET", `/api/price?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
+  setPrice: (provider: string, model: string, input: number | null, output: number | null) =>
+    request<Price>("PUT", "/api/price", { provider, model, input, output }),
+  vision: (provider: string, model: string) =>
+    request<Vision>("GET", `/api/vision?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
+  setVision: (provider: string, model: string, mode: Vision["mode"]) =>
+    request<Vision>("PUT", "/api/vision", { provider, model, mode }),
+  setSkillEnabled: (name: string, enabled: boolean) => request<void>("PUT", `/api/skills/${encodeURIComponent(name)}`, { enabled }),
+  audit: () => request<AuditReport>("GET", "/api/audit"),
+  runSettings: () => request<RunSettings>("GET", "/api/run-settings"),
+  setRunSettings: (changes: Partial<RunSettings>) => request<RunSettings>("PUT", "/api/run-settings", changes),
   models: (id: string) => request<ModelInfo[]>("GET", `/api/providers/${id}/models`),
 };
 
