@@ -238,6 +238,27 @@ export interface SkillInfo {
   verified: boolean;
 }
 
+export interface CatalogEntry {
+  name: string;
+  version: string;
+  description: string;
+  author: string | null;
+  license: string | null;
+  permissions: string[];
+  integrations: string[];
+  /** The version you have installed, if any. */
+  installed_version: string | null;
+  /** A built-in skill has this name. */
+  builtin: boolean;
+}
+
+export interface Catalog {
+  /** Pass back when installing, so the listing and the download are the same commit. */
+  commit: string;
+  skills: CatalogEntry[];
+  skipped: number;
+}
+
 /** What a skill zip contains and asks for, before anything is installed. */
 export interface InstallPreview {
   token: string;
@@ -466,6 +487,9 @@ export const api = {
     request<Vision>("GET", `/api/vision?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
   setVision: (provider: string, model: string, mode: Vision["mode"]) =>
     request<Vision>("PUT", "/api/vision", { provider, model, mode }),
+  catalog: () => request<Catalog>("GET", "/api/catalog"),
+  stageCatalogSkill: (name: string, commit: string) =>
+    request<InstallPreview>("POST", "/api/catalog/install", { name, commit }),
   previewSkillInstall: (zip: ArrayBuffer) => upload<InstallPreview>("/api/skills/install/preview", zip),
   installSkill: (token: string, approved: string[]) =>
     request<{ name: string; version: string }>("POST", "/api/skills/install", { token, approved }),

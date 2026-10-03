@@ -42,6 +42,19 @@ def permissions_of(skill: Skill) -> list[str]:
     return sorted(set(labels))
 
 
+def package_hash(path: Path) -> str:
+    """Content hash of a skill folder, the same on every OS: sha256 over sorted "<posix path> <file sha256>" lines.
+
+    The catalog index records it (PLAN.md §5) and the app recomputes it on what it downloaded. Install metadata
+    is left out, since it is written after the hash is checked.
+    """
+    lines = []
+    for file in sorted(p for p in path.rglob("*") if p.is_file() and p.name != META_FILE):
+        digest = hashlib.sha256(file.read_bytes()).hexdigest()
+        lines.append(f"{file.relative_to(path).as_posix()} {digest}\n")
+    return hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
+
+
 @dataclass
 class Preview:
     token: str
@@ -86,29 +99,49 @@ class SkillInstaller:
 
     # -- staging ---------------------------------------------------------------------------
 
-    def stage_zip(self, data: bytes) -> Preview:
-        if len(data) > MAX_ZIP_BYTES:
-            raise InstallError("That file is too large to be a skill (limit 10 MB).")
+    def stage_zip(
+        self,
+        data: bytes,
+        *,
+        subpath: str | None = None,
+        expected_sha256: str | None = None,
+        source: str | None = None,
+        max_zip_bytes: int = MAX_ZIP_BYTES,
+    ) -> Preview:
+        """Unpack a skill zip and describe it. Nothing is installed.
+
+        `subpath` picks one skill folder out of a repo archive (`<repo>-<ref>/<subpath>/...`); the catalog uses
+        it. `expected_sha256` is the package hash the catalog promised; a different one refuses the install.
+        """
+        if len(data) > max_zip_bytes:
+            raise InstallError(f"That file is too large to be a skill (limit {max_zip_bytes // 2**20} MB).")
         try:
             zf = zipfile.ZipFile(io.BytesIO(data))
         except zipfile.BadZipFile:
             raise InstallError("That file is not a valid zip.") from None
         with zf:
-            entries = self._checked_entries(zf)
-            root = self._skill_root(entries)
+            if subpath:
+                entries, root = self._subpath_entries(zf, subpath)
+            else:
+                entries = self._checked_entries(zf)
+                root = self._skill_root(entries)
             token = uuid.uuid4().hex
             folder = self.staging / token  # holds <name>/ and preview.json once staged
             try:
                 self._extract(zf, entries, root, folder / "_pending")
-                preview = self._preview(folder, token, hashlib.sha256(data).hexdigest())
+                digest = hashlib.sha256(data).hexdigest()
+                preview = self._preview(folder, token, digest, source or f"zip {digest[:12]}", expected_sha256)
             except BaseException:
                 shutil.rmtree(folder, ignore_errors=True)
                 raise
         return preview
 
+    @classmethod
+    def _checked_entries(cls, zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+        return cls._checked_entries_of([i for i in zf.infolist() if not i.is_dir()])
+
     @staticmethod
-    def _checked_entries(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
-        files = [i for i in zf.infolist() if not i.is_dir()]
+    def _checked_entries_of(files: list[zipfile.ZipInfo]) -> list[zipfile.ZipInfo]:
         if not files:
             raise InstallError("The zip is empty.")
         if len(files) > MAX_FILES:
@@ -129,6 +162,26 @@ class SkillInstaller:
         if total > MAX_TOTAL_BYTES:
             raise InstallError("The skill is too large once unpacked (limit 10 MB).")
         return files
+
+    def _subpath_entries(self, zf: zipfile.ZipFile, subpath: str) -> tuple[list[zipfile.ZipInfo], str]:
+        want = PurePosixPath(subpath).parts
+        if not want or ".." in want or subpath.startswith(("/", "\\")):
+            raise InstallError(f"Unsafe skill path: {subpath!r}.")
+        picked, tops = [], set()
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            parts = PurePosixPath(info.filename.replace("\\", "/")).parts
+            if len(parts) > len(want) + 1 and parts[1 : 1 + len(want)] == want:
+                picked.append(info)
+                tops.add(parts[0])
+        if len(tops) != 1:
+            raise InstallError(f"{subpath!r} was not found in the download.")
+        root = f"{next(iter(tops))}/{'/'.join(want)}"
+        entries = self._checked_entries_of(picked)
+        if not any(i.filename == f"{root}/SKILL.md" for i in entries):
+            raise InstallError(f"{subpath!r} has no SKILL.md.")
+        return entries, root
 
     @staticmethod
     def _skill_root(entries: list[zipfile.ZipInfo]) -> str:
@@ -164,7 +217,9 @@ class SkillInstaller:
                         raise InstallError("The skill is too large once unpacked (limit 10 MB).")
                     out.write(chunk)
 
-    def _preview(self, folder: Path, token: str, digest: str) -> Preview:
+    def _preview(
+        self, folder: Path, token: str, digest: str, source: str, expected_sha256: str | None
+    ) -> Preview:
         pending = folder / "_pending"
         try:
             manifest, _ = parse_skill_md((pending / "SKILL.md").read_text(encoding="utf-8"))
@@ -176,6 +231,8 @@ class SkillInstaller:
         name = skill.manifest.name
         if name in self.builtin_names:
             raise InstallError(f"A built-in skill is already called {name!r}.")
+        if expected_sha256 is not None and package_hash(final) != expected_sha256:
+            raise InstallError("The download does not match the catalog's fingerprint, so it was not installed.")
         perms = permissions_of(skill)
         installed = self.user_dir / name
         old_version, added = None, perms
@@ -183,7 +240,8 @@ class SkillInstaller:
             old_version = _installed_version(installed)
             previous = _approved(installed)
             added = [p for p in perms if p not in previous]
-        (folder / "preview.json").write_text(json.dumps({"name": name, "digest": digest}), encoding="utf-8")
+        staged_info = {"name": name, "digest": digest, "source": source}
+        (folder / "preview.json").write_text(json.dumps(staged_info), encoding="utf-8")
         files = sorted(p.relative_to(final).as_posix() for p in final.rglob("*") if p.is_file())
         return Preview(
             token=token,
@@ -191,7 +249,7 @@ class SkillInstaller:
             version=skill.manifest.version,
             description=skill.manifest.description,
             author=skill.manifest.author,
-            source=f"zip {digest[:12]}",
+            source=source,
             permissions=perms,
             files=files,
             installed_version=old_version,
@@ -225,7 +283,7 @@ class SkillInstaller:
         (target / META_FILE).write_text(
             json.dumps(
                 {
-                    "source": f"zip {info['digest'][:12]}",
+                    "source": info["source"],
                     "sha256": info["digest"],
                     "installed_at": datetime.now(UTC).isoformat(timespec="seconds"),
                     "approved": permissions_of(skill),  # dropped permissions must be re-approved later

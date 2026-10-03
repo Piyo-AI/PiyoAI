@@ -196,3 +196,23 @@ def test_api_bad_zip_and_cancel(tmp_path):
     gone = client.post("/api/skills/install", json={"token": token, "approved": ["tool:files.read"]}, headers=AUTH)
     assert gone.status_code == 400
     assert client.post("/api/skills/install/preview", content=b"x").status_code in (401, 403)
+
+
+def test_package_hash_is_stable_and_sees_every_change(tmp_path):
+    from piyo.skills.install import META_FILE, package_hash
+
+    a = tmp_path / "a"
+    (a / "scripts").mkdir(parents=True)
+    (a / "SKILL.md").write_text(skill_md(), encoding="utf-8")
+    (a / "scripts" / "run.py").write_text("print(1)", encoding="utf-8")
+    first = package_hash(a)
+    assert first == package_hash(a) and len(first) == 64
+
+    (a / META_FILE).write_text("{}", encoding="utf-8")
+    assert package_hash(a) == first  # install metadata does not count
+
+    (a / "scripts" / "run.py").write_text("print(2)", encoding="utf-8")
+    changed = package_hash(a)
+    assert changed != first
+    (a / "scripts" / "run.py").rename(a / "scripts" / "go.py")  # a rename changes it too
+    assert package_hash(a) not in (first, changed)

@@ -37,6 +37,7 @@ from piyo.models.prompt_tools import native_with_fallback, prompt_turn
 from piyo.models.turn import Message, stream_turn
 from piyo.safety import ApprovalRequest, PermissionGate
 from piyo.skills import SkillRegistry
+from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
 from piyo.skills.install import InstallError, SkillInstaller, read_meta
 from piyo.store import (
     AuditStore,
@@ -104,6 +105,22 @@ class InstallPreviewOut(BaseModel):
     installed_version: str | None
     added: list[str]  # permissions the user has to approve now
     verified: bool
+
+
+class CatalogEntryOut(CatalogEntry):
+    installed_version: str | None = None  # the version you have, if any
+    builtin: bool = False  # a built-in skill has this name, so it can't be installed
+
+
+class CatalogOut(BaseModel):
+    commit: str  # pass back to /api/catalog/install so the listing and the download agree
+    skills: list[CatalogEntryOut]
+    skipped: int
+
+
+class CatalogInstallIn(BaseModel):
+    name: str
+    commit: str
 
 
 class InstallCommitIn(BaseModel):
@@ -381,6 +398,7 @@ def create_app(
     google: GoogleAuth | None = None,
     browser: BrowserSession | None = None,
     browser_installer: BrowserInstaller | None = None,
+    catalog: CatalogClient | None = None,
 ) -> FastAPI:
     google = google or GoogleAuth()
     browser_rules = BrowserRules()
@@ -879,6 +897,36 @@ def create_app(
             return InstallPreviewOut(**vars(skill_installer().stage_zip(data)))
         except InstallError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
+
+    catalog_client = catalog or CatalogClient()
+
+    @app.get("/api/catalog", dependencies=auth)
+    async def get_catalog() -> CatalogOut:
+        try:
+            found = await catalog_client.fetch()
+        except CatalogError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from None
+        have = {sk.manifest.name: sk for sk in skills.list()}
+        return CatalogOut(
+            commit=found.commit,
+            skipped=found.skipped,
+            skills=[
+                CatalogEntryOut(
+                    **e.model_dump(),
+                    installed_version=have[e.name].manifest.version if e.name in have else None,
+                    builtin=e.name in have and have[e.name].source == "builtin",
+                )
+                for e in found.skills
+            ],
+        )
+
+    @app.post("/api/catalog/install", dependencies=auth)
+    async def stage_catalog_skill(body: CatalogInstallIn) -> InstallPreviewOut:
+        """Downloads one catalog skill for review; finish with POST /api/skills/install like any other."""
+        try:
+            return InstallPreviewOut(**vars(await catalog_client.stage(skill_installer(), body.name, body.commit)))
+        except (CatalogError, InstallError) as e:
+            raise HTTPException(status_code=502 if isinstance(e, CatalogError) else 400, detail=str(e)) from None
 
     @app.post("/api/skills/install", dependencies=auth, status_code=201)
     def install_skill(body: InstallCommitIn) -> dict:
