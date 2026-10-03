@@ -71,6 +71,16 @@ def _last_lines(raw: bytes, count: int = 3) -> str:
     return " | ".join(lines[-count:])[-500:]
 
 
+async def _reap(proc: asyncio.subprocess.Process) -> None:
+    """Kill a process and let its pipes close, so no half-open transport outlives the call."""
+    proc.kill()
+    streams = [s for s in (proc.stdout, proc.stderr) if s is not None]
+    try:
+        await asyncio.wait_for(asyncio.gather(*(s.read() for s in streams), proc.wait()), 5)
+    except (TimeoutError, OSError):
+        pass
+
+
 class ScriptRunner:
     def __init__(
         self,
@@ -219,6 +229,8 @@ class ScriptRunner:
                 data += chunk
                 if len(data) > limit:
                     proc.kill()  # fail closed: a runaway script is stopped, not truncated and trusted
+                    while await stream.read(65536):
+                        pass  # drain to the end of the pipe so its transport closes cleanly
                     return bytes(data[:limit]), True
             return bytes(data), False
 
@@ -231,8 +243,7 @@ class ScriptRunner:
             _, (out, too_big), (err, _) = await asyncio.wait_for(work(), timeout)
             await proc.wait()
         except TimeoutError:
-            proc.kill()
-            await proc.wait()
+            await _reap(proc)
             raise ScriptError(f"The script ran longer than {timeout:g} seconds and was stopped.") from None
         if too_big:
             raise ScriptError(f"The script printed more than {MAX_OUTPUT_BYTES // 1000} KB and was stopped.")
