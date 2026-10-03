@@ -53,6 +53,29 @@ async def test_read_and_list(env):
     assert await run(env, "files.read", path=str(root / "a.txt")) == "hello"
 
 
+async def test_folders_tool_reports_modes(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    store = ApprovedFolders(tmp_path / "g.json")
+    store.set([FolderGrant(a, auto_changes=True), FolderGrant(b)])
+    tool = {t.name: t for t in file_tools(store)}["files.folders"]
+    assert tool.core and tool.risk is Risk.AUTO
+    ctx = RunContext(skills=SkillRegistry(builtin_dir=tmp_path, user_dir=tmp_path))
+    out = await tool.handler({}, ctx)
+    line_a = next(ln for ln in out.splitlines() if str(a.resolve()) in ln)
+    line_b = next(ln for ln in out.splitlines() if str(b.resolve()) in ln)
+    assert "need no approval" in line_a
+    assert "needs the user's approval" in line_b
+    assert "always need" in out
+
+
+async def test_folders_tool_when_none(tmp_path):
+    tool = {t.name: t for t in file_tools(ApprovedFolders(tmp_path / "n.json"))}["files.folders"]
+    ctx = RunContext(skills=SkillRegistry(builtin_dir=tmp_path, user_dir=tmp_path))
+    assert "Settings" in await tool.handler({}, ctx)
+
+
 async def test_no_folders_approved(tmp_path):
     folders = ApprovedFolders(tmp_path / "none.json")
     tool = {t.name: t for t in file_tools(folders)}["files.list"]

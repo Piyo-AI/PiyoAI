@@ -28,6 +28,7 @@ from piyo.safety import ApprovalRequest, PermissionGate
 from piyo.skills import SkillRegistry
 from piyo.tools import ToolRegistry, core_tools
 from piyo.tools.files import file_tools
+from piyo.tools.web import web_tools
 
 # Tauri webview origins (Windows/Linux, macOS) and the Vite dev server.
 ALLOWED_ORIGINS = [
@@ -95,7 +96,7 @@ def create_app(
     registry = registry or ProviderRegistry()
     skills = skills or SkillRegistry()
     folders = ApprovedFolders()
-    tools = ToolRegistry(core_tools() + file_tools(folders))
+    tools = ToolRegistry(core_tools() + file_tools(folders) + web_tools())
     app = FastAPI(title="Piyo Core", version=__version__)
     app.state.tools = tools
     app.add_middleware(

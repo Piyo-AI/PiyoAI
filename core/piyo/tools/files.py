@@ -65,6 +65,20 @@ class FileTools:
         both = self._auto(args.get("source")) and self._auto(args.get("destination"))
         return Risk.AUTO if both else Risk.CONFIRM
 
+    async def folders(self, args: dict, ctx: RunContext) -> str:
+        grants = self._folders.list()
+        if not grants:
+            return "No folders are approved for file access. Ask the user to add one in Settings."
+        lines = ["Approved folders (reading is always allowed in them):"]
+        for g in grants:
+            if g.auto_changes:
+                mode = "creating folders, moving files and writing new files need no approval"
+            else:
+                mode = "every change needs the user's approval"
+            lines.append(f"- {g.path}: {mode}")
+        lines.append("Deleting and overwriting files always need the user's approval.")
+        return "\n".join(lines)
+
     async def list(self, args: dict, ctx: RunContext) -> str:
         path, _ = self._resolve(args.get("path"))
         if not path.is_dir():
@@ -152,6 +166,15 @@ def file_tools(folders: ApprovedFolders) -> list[Tool]:
         return {"type": "object", "properties": props, "required": required}
 
     return [
+        Tool(
+            name="files.folders",
+            description=(
+                "List the folders you may use for files and how changes are handled in each. "
+                "Call this when unsure where you can work."
+            ),
+            handler=impl.folders,
+            core=True,
+        ),
         Tool(
             name="files.list",
             description="List the files and folders in an approved folder.",

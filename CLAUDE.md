@@ -35,7 +35,7 @@ until a newer release is confirmed to run.
 | `models/` | Providers as data (`providers.py`); model clients, model lists (`clients.py`); one tool-calling turn normalised across both wire formats (`turn.py`) |
 | `agent/` | The loop (`loop.py`): model turn, tool calls, results, repeat; system prompt (`prompts.py`) |
 | `tools/` | `Tool`, `Risk`, `ToolRegistry`, `RunContext`; core tools `load_skill`, `current_time` |
-| `safety/` | `PermissionGate`: every tool call is authorised here before it runs |
+| `safety/` | `PermissionGate`: every tool call is authorised here before it runs; `untrusted.py` fences outside text |
 | `skills/` | `SKILL.md` parsing/validation (`manifest.py`) and discovery (`registry.py`) |
 | `server/` | FastAPI + WebSocket API for the app (`app.py`), launcher (`__main__.py`) |
 
@@ -85,5 +85,5 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 
 Working: chat with streaming, providers/keys/model lists, agent loop with tool calling, permission gate with
 approval UI, stop/cancel, skill loading and per-skill tool grants, example skills `plan-my-day` and `downloads-organizer`.
-File tools (`files.*`, approved folders only; API `/api/folders`, Settings section to manage them, with a per-folder "no prompts for changes" switch). Not yet: web tools, conversation store, fallback for models without tool calling, sidecar launch in
+File tools (`files.*`, approved folders only; API `/api/folders`, Settings section to manage them, with a per-folder "no prompts for changes" switch). `web.fetch` (public hosts only, output fenced as untrusted; skill `web-reader`). Not yet: web search, conversation store, fallback for models without tool calling, sidecar launch in
 production builds, CI, task log, integrations. See `../docs/README.md` for the ordered plan.
