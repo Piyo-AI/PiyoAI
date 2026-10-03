@@ -168,8 +168,8 @@ function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; ref
         asks you first. Switching one off hides it from Piyo; it is remembered after a restart.
       </p>
       {error && <p className="error">{error}</p>}
-      <GoogleConnection onChange={load} />
       <SkillInstall onChange={load} />
+      <GoogleConnection onChange={load} />
       {skills && skills.length === 0 && <p className="hint">No skills found.</p>}
       <ul className="providers">
         {skills?.map((s) => (
