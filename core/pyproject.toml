@@ -16,6 +16,7 @@ dependencies = [
     "platformdirs>=4",
     "pydantic>=2.8",
     "python-dotenv>=1.0",
+    "pyyaml>=6",
 ]
 
 [project.scripts]
@@ -25,7 +26,7 @@ piyo-core = "piyo.server.__main__:main"
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
-    "ruff>=0.6",
+    "ruff>=0.6,!=0.16.10",
 ]
 
 [build-system]

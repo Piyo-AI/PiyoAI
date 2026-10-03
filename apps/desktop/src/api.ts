@@ -40,8 +40,27 @@ export interface ChatMessage {
 
 export type ChatEvent =
   | { type: "delta"; text: string }
-  | { type: "done" }
+  | { type: "tool_start"; id: string; name: string; arguments: Record<string, unknown> }
+  | { type: "tool_end"; id: string; name: string; output: string; is_error: boolean }
+  | { type: "approval_request"; id: string; tool: string; arguments: Record<string, unknown> }
+  | { type: "done"; reason: "done" | "step_limit" | "truncated" | "cancelled" }
   | { type: "error"; message: string };
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  version: string;
+  source: "builtin" | "user";
+  tools: string[];
+  has_setup: boolean;
+  enabled: boolean;
+}
+
+export interface FolderEntry {
+  path: string;
+  /** Creating folders, moving and writing new files here need no per-call approval. Delete and overwrite always ask. */
+  auto_changes: boolean;
+}
 
 interface Connection {
   port: number;
@@ -93,6 +112,9 @@ export const api = {
   removeProvider: (id: string) => request<void>("DELETE", `/api/providers/${id}`),
   setKey: (id: string, key: string) => request<void>("PUT", `/api/providers/${id}/key`, { key }),
   deleteKey: (id: string) => request<void>("DELETE", `/api/providers/${id}/key`),
+  skills: () => request<{ skills: SkillInfo[]; errors: Record<string, string> }>("GET", "/api/skills"),
+  folders: () => request<{ folders: FolderEntry[] }>("GET", "/api/folders"),
+  setFolders: (folders: FolderEntry[]) => request<{ folders: FolderEntry[] }>("PUT", "/api/folders", { folders }),
   models: (id: string) => request<ModelInfo[]>("GET", `/api/providers/${id}/models`),
 };
 
@@ -121,6 +143,18 @@ export class ChatSocket {
   async send(provider: string, model: string, messages: ChatMessage[]): Promise<void> {
     const ws = await this.open();
     ws.send(JSON.stringify({ type: "chat", provider, model, messages }));
+  }
+
+  /** Answer an approval request from the core. */
+  async respond(id: string, approve: boolean): Promise<void> {
+    const ws = await this.open();
+    ws.send(JSON.stringify({ type: "approval", id, approve }));
+  }
+
+  /** Stop the run in progress. */
+  async cancel(): Promise<void> {
+    const ws = await this.open();
+    ws.send(JSON.stringify({ type: "cancel" }));
   }
 
   close(): void {

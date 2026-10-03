@@ -29,3 +29,6 @@ Thumbs.db
 # Tauri build output
 **/src-tauri/gen/
 .devdata/
+
+# Machine-specific Claude Code notes
+CLAUDE.local.md

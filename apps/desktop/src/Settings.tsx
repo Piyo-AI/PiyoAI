@@ -1,6 +1,6 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
-import { api, ApiStyle, Provider } from "./api";
+import { api, ApiStyle, FolderEntry, Provider } from "./api";
 
 interface Props {
   providers: Provider[];
@@ -40,8 +40,88 @@ export function Settings({ providers, onChanged, onClose }: Props) {
           ))}
         </ul>
         <AddProvider run={run} />
+        <Folders />
       </div>
     </div>
+  );
+}
+
+function Folders() {
+  const [folders, setFolders] = useState<FolderEntry[]>([]);
+  const [path, setPath] = useState("");
+  const [autoNew, setAutoNew] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .folders()
+      .then((r) => setFolders(r.folders))
+      .catch((e) => setError((e as Error).message));
+  }, []);
+
+  const save = async (next: FolderEntry[]) => {
+    setError(null);
+    try {
+      setFolders((await api.setFolders(next)).folders);
+      setPath("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <section className="folders">
+      <h3>Folders Piyo may use</h3>
+      <p className="hint">
+        Piyo can only read or change files inside these folders. Reading is always allowed. Deleting and
+        replacing existing files always ask you first. For everything else, choose per folder whether Piyo may go
+        ahead or must ask each time.
+      </p>
+      {error && <p className="error">{error}</p>}
+      <ul className="providers">
+        {folders.map((f) => (
+          <li key={f.path}>
+            <div className="row-head">
+              <span>{f.path}</span>
+              <button className="ghost danger" onClick={() => save(folders.filter((x) => x.path !== f.path))}>
+                Remove
+              </button>
+            </div>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={f.auto_changes}
+                onChange={(e) =>
+                  save(folders.map((x) => (x.path === f.path ? { ...x, auto_changes: e.target.checked } : x)))
+                }
+              />
+              Create folders and move or add files here without asking
+            </label>
+          </li>
+        ))}
+        {folders.length === 0 && <li className="muted">No folders yet.</li>}
+      </ul>
+      <form
+        className="inline"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (path.trim()) save([...folders, { path: path.trim(), auto_changes: autoNew }]);
+        }}
+      >
+        <input
+          placeholder="Full path, e.g. C:\Users\you\Downloads"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+        />
+        <label className="check">
+          <input type="checkbox" checked={autoNew} onChange={(e) => setAutoNew(e.target.checked)} />
+          Don't ask for changes here
+        </label>
+        <button type="submit" disabled={!path.trim()}>
+          Add folder
+        </button>
+      </form>
+    </section>
   );
 }
 

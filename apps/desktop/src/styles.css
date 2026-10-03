@@ -300,3 +300,60 @@ textarea:focus {
   white-space: nowrap;
   font-size: 13px;
 }
+
+.tool {
+  margin: 0 0 6px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: var(--bg);
+}
+.tool summary {
+  cursor: pointer;
+}
+.tool-state {
+  display: inline-block;
+  width: 1.2em;
+}
+.tool.ok .tool-state {
+  color: var(--ok);
+}
+.tool.failed .tool-state {
+  color: var(--error);
+}
+.tool pre,
+.approval pre {
+  margin: 6px 0 2px;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.approval {
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin: 0 0 12px;
+  background: var(--surface);
+}
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+button.stop {
+  background: var(--error);
+  color: #fff;
+  border-color: var(--error);
+}
+button.stop:disabled {
+  opacity: 0.7;
+}

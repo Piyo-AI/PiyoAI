@@ -2,6 +2,7 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } fr
 
 import { api, ModelInfo, Provider } from "./api";
 import { Settings } from "./Settings";
+import { ApprovalCard, ToolChip } from "./Tools";
 import { useChat } from "./useChat";
 
 const store = {
@@ -39,7 +40,7 @@ export default function App() {
   const [coreError, setCoreError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [input, setInput] = useState("");
-  const { messages, busy, send, clear } = useChat();
+  const { messages, busy, isStopping, approvals, send, respond, stop, clear } = useChat();
   const bottom = useRef<HTMLDivElement>(null);
 
   const provider = providers.find((p) => p.id === providerId);
@@ -110,7 +111,15 @@ export default function App() {
   const shownModels = freeOnly ? models.filter((m) => m.free) : models;
   const current = models.find((m) => m.id === model);
 
-  const canSend = !!provider && !!model.trim() && !!input.trim() && !busy;
+  // Esc stops a running chat from anywhere in the window.
+  useEffect(() => {
+    if (!busy) return;
+    const onEsc = (e: globalThis.KeyboardEvent) => e.key === "Escape" && stop();
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [busy, stop]);
+
+  const canSend =!!provider && !!model.trim() && !!input.trim() && !busy;
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
@@ -196,8 +205,15 @@ export default function App() {
         )}
         {messages.map((m, i) => (
           <div key={i} className={`msg ${m.role}${m.error ? " failed" : ""}`}>
-            <div className="bubble">{m.content || (busy && i === messages.length - 1 ? <span className="dots" /> : "")}</div>
+            <div className="bubble">
+              {m.tools?.map((t) => <ToolChip key={t.id} tool={t} />)}
+              {m.content || (busy && i === messages.length - 1 && !m.tools?.length ? <span className="dots" /> : "")}
+              {m.note && <div className="note">{m.note}</div>}
+            </div>
           </div>
+        ))}
+        {approvals.map((a) => (
+          <ApprovalCard key={a.id} approval={a} onAnswer={(ok) => respond(a.id, ok)} />
         ))}
         <div ref={bottom} />
       </main>
@@ -210,9 +226,15 @@ export default function App() {
           placeholder="Message Piyo…  (Enter to send, Shift+Enter for a new line)"
           rows={2}
         />
-        <button type="submit" disabled={!canSend}>
-          Send
-        </button>
+        {busy ? (
+          <button type="button" className="stop" onClick={stop} disabled={isStopping} title="Stop (Esc)">
+            {isStopping ? "Stopping…" : "Stop"}
+          </button>
+        ) : (
+          <button type="submit" disabled={!canSend}>
+            Send
+          </button>
+        )}
       </form>
 
       {showSettings && (

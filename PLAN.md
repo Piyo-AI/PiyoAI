@@ -336,6 +336,7 @@ _None blocking right now. Add new ones here._
 | 2026-10-03 | Repos owned by GitHub org **Piyo-AI** (https://github.com/Piyo-AI): `PiyoAI`, `piyo-skills`; MIT copyright holder "Piyo AI" | User decision |
 | 2026-10-03 | Catalog submissions reviewed by the Piyo AI team | User decision |
 | 2026-10-03 | Anonymous usage + crash reports, opt-in, no content ever collected | Privacy & trust |
+| 2026-10-03 | File tools: each approved folder has an "allow changes without asking" switch (off by default for new folders). When on, creating folders, moving files and writing new files there need no per-call approval; **deleting and overwriting always ask**, as does anything outside such a folder. A tool may compute its risk per call (`Tool.risk_for`); skills cannot | Asking for every move made organising a folder unusable; the user decides trust per folder, destructive actions stay gated |
 | 2026-10-03 | Min OS: Windows 10 22H2+, macOS 12+, Ubuntu 22.04+/Debian 12+/Fedora 39+ | Tauri 2 / WebView requirements, broad reach |
 
 ## 13. Backlog / Ideas
