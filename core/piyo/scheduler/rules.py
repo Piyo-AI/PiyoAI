@@ -41,13 +41,19 @@ def parse_rule(data: object) -> dict:
         try:
             datetime.fromisoformat(at)
         except ValueError:
-            raise RuleError("Give the date and time as YYYY-MM-DDTHH:MM, for example 2026-10-05T08:00.") from None
+            raise RuleError(
+                "Give the date and time as YYYY-MM-DDTHH:MM, for example 2026-10-05T08:00."
+            ) from None
         return {"kind": "once", "at": at}
     if kind in ("daily", "weekdays"):
         return {"kind": kind, "time": _clock(data.get("time"))}
     if kind == "weekly":
         days = data.get("days")
-        if not isinstance(days, list) or not days or not all(isinstance(d, int) and 0 <= d <= 6 for d in days):
+        if (
+            not isinstance(days, list)
+            or not days
+            or not all(isinstance(d, int) and 0 <= d <= 6 for d in days)
+        ):
             raise RuleError("Choose at least one weekday (0 = Monday ... 6 = Sunday).")
         return {"kind": "weekly", "days": sorted(set(days)), "time": _clock(data.get("time"))}
     if kind == "every":

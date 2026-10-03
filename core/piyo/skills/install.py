@@ -43,10 +43,11 @@ def permissions_of(skill: Skill) -> list[str]:
 
 
 def package_hash(path: Path) -> str:
-    """Content hash of a skill folder, the same on every OS: sha256 over sorted "<posix path> <file sha256>" lines.
+    """Content hash of a skill folder, the same on every OS.
 
-    The catalog index records it (PLAN.md §5) and the app recomputes it on what it downloaded. Install metadata
-    is left out, since it is written after the hash is checked.
+    It is sha256 over the sorted lines "<posix path> <file sha256>". The catalog index records it
+    (PLAN.md §5) and the app recomputes it on what it downloaded. Install metadata is left out, since it
+    is written after the hash is checked.
     """
     lines = []
     for file in sorted(p for p in path.rglob("*") if p.is_file() and p.name != META_FILE):
@@ -128,8 +129,9 @@ class SkillInstaller:
     ) -> Preview:
         """Unpack a skill zip and describe it. Nothing is installed.
 
-        `subpath` picks one skill folder out of a repo archive (`<repo>-<ref>/<subpath>/...`); the catalog uses
-        it. `expected_sha256` is the package hash the catalog promised; a different one refuses the install.
+        `subpath` picks one skill folder out of a repo archive (`<repo>-<ref>/<subpath>/...`); the catalog
+        uses it. `expected_sha256` is the package hash the catalog promised; a different one refuses the
+        install.
         """
         if len(data) > max_zip_bytes:
             raise InstallError(f"That file is too large to be a skill (limit {max_zip_bytes // 2**20} MB).")
@@ -148,7 +150,9 @@ class SkillInstaller:
             try:
                 self._extract(zf, entries, root, folder / "_pending")
                 digest = hashlib.sha256(data).hexdigest()
-                preview = self._preview(folder, token, digest, source or f"zip {digest[:12]}", expected_sha256)
+                preview = self._preview(
+                    folder, token, digest, source or f"zip {digest[:12]}", expected_sha256
+                )
             except BaseException:
                 shutil.rmtree(folder, ignore_errors=True)
                 raise
@@ -250,7 +254,9 @@ class SkillInstaller:
         if name in self.builtin_names:
             raise InstallError(f"A built-in skill is already called {name!r}.")
         if expected_sha256 is not None and package_hash(final) != expected_sha256:
-            raise InstallError("The download does not match the catalog's fingerprint, so it was not installed.")
+            raise InstallError(
+                "The download does not match the catalog's fingerprint, so it was not installed."
+            )
         perms = permissions_of(skill)
         installed = self.user_dir / name
         old_version, added = None, perms

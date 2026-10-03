@@ -27,6 +27,9 @@ jobs:
           python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: core/uv.lock
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
       - run: uv sync --locked
       - run: uv run ruff check piyo tests
       - run: uv run pytest -q

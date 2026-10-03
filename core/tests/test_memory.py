@@ -83,7 +83,9 @@ async def run_tool(store, name, **args):
 
 
 async def test_tools_round_trip_and_fence_recalled_text(store):
-    assert "Remembered" in await run_tool(store, "memory.remember", text="City is Pune", category="preference")
+    assert "Remembered" in await run_tool(
+        store, "memory.remember", text="City is Pune", category="preference"
+    )
     out = await run_tool(store, "memory.recall", query="city")
     assert "<untrusted_content" in out and "City is Pune" in out
     assert await run_tool(store, "memory.recall", query="zzz") == "Nothing remembered matches."
@@ -118,7 +120,12 @@ async def test_forgetting_asks_the_user_first_and_the_profile_reaches_the_prompt
     tools = ToolRegistry(core_tools() + memory_tools(store))
     skills = SkillRegistry(builtin_dir=tmp_path / "a", user_dir=tmp_path / "b")
     agent = Agent(
-        PROVIDER, "m", tools, skills, PermissionGate(approver), turn_fn=script,
+        PROVIDER,
+        "m",
+        tools,
+        skills,
+        PermissionGate(approver),
+        turn_fn=script,
         memory_prompt=lambda: profile_prompt(store),
     )
     _, events = await collect(agent)
@@ -149,13 +156,26 @@ def test_api(tmp_path):
     made = client.post("/api/memory", json={"text": "Likes tea", "category": "preference"}, headers=AUTH)
     assert made.status_code == 201 and made.json()["source"] == "user"
     mid = made.json()["id"]
-    assert client.put(f"/api/memory/{mid}", json={"text": "Likes green tea"}, headers=AUTH).json()["text"] == "Likes green tea"
+    assert (
+        client.put(f"/api/memory/{mid}", json={"text": "Likes green tea"}, headers=AUTH).json()["text"]
+        == "Likes green tea"
+    )
     assert client.get("/api/memory?q=green", headers=AUTH).json()[0]["id"] == mid
     assert client.post("/api/memory", json={"text": "password is x"}, headers=AUTH).status_code == 400
-    assert client.post("/api/memory", json={"text": "Takes pills", "category": "health"}, headers=AUTH).status_code == 400
+    assert (
+        client.post(
+            "/api/memory", json={"text": "Takes pills", "category": "health"}, headers=AUTH
+        ).status_code
+        == 400
+    )
     on = client.put("/api/memory-settings", json={"sensitive": True}, headers=AUTH).json()
     assert on["sensitive"] is True and "health" in on["categories"]
-    assert client.post("/api/memory", json={"text": "Takes pills", "category": "health"}, headers=AUTH).status_code == 201
+    assert (
+        client.post(
+            "/api/memory", json={"text": "Takes pills", "category": "health"}, headers=AUTH
+        ).status_code
+        == 201
+    )
     assert len(client.get("/api/memory-export", headers=AUTH).json()) == 2
     assert client.delete(f"/api/memory/{mid}", headers=AUTH).status_code == 204
     assert client.delete(f"/api/memory/{mid}", headers=AUTH).status_code == 404

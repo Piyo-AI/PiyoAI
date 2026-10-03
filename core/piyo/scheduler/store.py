@@ -108,14 +108,42 @@ class SchedulerStore:
         d = dict(row)
         return Job(**{**d, "rule": json.loads(d["rule"]), "enabled": bool(d["enabled"])})
 
-    def add_job(self, title: str, prompt: str, rule: dict, provider: str, model: str, next_run: str | None) -> Job:
+    def add_job(
+        self, title: str, prompt: str, rule: dict, provider: str, model: str, next_run: str | None
+    ) -> Job:
         with self._lock, closing(self._connect()) as db, db:
             if db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] >= MAX_JOBS:
                 raise ValueError(f"Too many scheduled jobs (limit {MAX_JOBS}). Delete some first.")
-            job = Job(uuid.uuid4().hex[:12], title, prompt, rule, provider, model, True, next_run, None, None, None, _now())
+            job = Job(
+                uuid.uuid4().hex[:12],
+                title,
+                prompt,
+                rule,
+                provider,
+                model,
+                True,
+                next_run,
+                None,
+                None,
+                None,
+                _now(),
+            )
             db.execute(
                 "INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (job.id, title, prompt, json.dumps(rule), provider, model, 1, next_run, None, None, None, job.created_at),
+                (
+                    job.id,
+                    title,
+                    prompt,
+                    json.dumps(rule),
+                    provider,
+                    model,
+                    1,
+                    next_run,
+                    None,
+                    None,
+                    None,
+                    job.created_at,
+                ),
             )
             return job
 
@@ -133,7 +161,8 @@ class SchedulerStore:
     def due_jobs(self, now: datetime) -> list[Job]:
         with closing(self._connect()) as db:
             rows = db.execute(
-                "SELECT * FROM jobs WHERE enabled = 1 AND next_run IS NOT NULL AND next_run <= ? ORDER BY next_run",
+                "SELECT * FROM jobs WHERE enabled = 1 AND next_run IS NOT NULL AND next_run <= ? "
+                "ORDER BY next_run",
                 (now.astimezone(UTC).isoformat(timespec="seconds"),),
             )
             return [self._job(r) for r in rows]
@@ -142,7 +171,9 @@ class SchedulerStore:
         allowed = {f.name for f in fields(Job)} - {"id", "created_at"}
         if bad := set(changes) - allowed:
             raise ValueError(f"cannot change {sorted(bad)}")
-        values = {k: (json.dumps(v) if k == "rule" else int(v) if k == "enabled" else v) for k, v in changes.items()}
+        values = {
+            k: (json.dumps(v) if k == "rule" else int(v) if k == "enabled" else v) for k, v in changes.items()
+        }
         with self._lock, closing(self._connect()) as db, db:
             if values:
                 sets = ", ".join(f"{k} = ?" for k in values)
@@ -152,7 +183,9 @@ class SchedulerStore:
     def delete_job(self, job_id: str) -> None:
         with self._lock, closing(self._connect()) as db, db:
             db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
-            db.execute("UPDATE pending SET status = 'expired' WHERE job_id = ? AND status = 'pending'", (job_id,))
+            db.execute(
+                "UPDATE pending SET status = 'expired' WHERE job_id = ? AND status = 'pending'", (job_id,)
+            )
 
     # -- held actions ----------------------------------------------------------------------
 
@@ -162,11 +195,24 @@ class SchedulerStore:
         return Pending(**{**d, "arguments": json.loads(d["arguments"])})
 
     def add_pending(self, job: Job, tool: str, arguments: dict, summary: str) -> Pending:
-        item = Pending(uuid.uuid4().hex[:12], job.id, job.title, None, tool, arguments, summary, "pending", None, _now())
+        item = Pending(
+            uuid.uuid4().hex[:12], job.id, job.title, None, tool, arguments, summary, "pending", None, _now()
+        )
         with self._lock, closing(self._connect()) as db, db:
             db.execute(
                 "INSERT INTO pending VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (item.id, job.id, job.title, None, tool, json.dumps(arguments), summary, "pending", None, item.created_at),
+                (
+                    item.id,
+                    job.id,
+                    job.title,
+                    None,
+                    tool,
+                    json.dumps(arguments),
+                    summary,
+                    "pending",
+                    None,
+                    item.created_at,
+                ),
             )
         return item
 
@@ -182,7 +228,9 @@ class SchedulerStore:
         with closing(self._connect()) as db:
             return [self._pending(r) for r in db.execute(sql + " ORDER BY created_at DESC LIMIT 200")]
 
-    def set_pending(self, pending_id: str, status: str, result: str | None = None, conversation_id: str | None = None) -> None:
+    def set_pending(
+        self, pending_id: str, status: str, result: str | None = None, conversation_id: str | None = None
+    ) -> None:
         with self._lock, closing(self._connect()) as db, db:
             db.execute(
                 "UPDATE pending SET status = ?, result = COALESCE(?, result), "
@@ -192,7 +240,9 @@ class SchedulerStore:
 
     # -- notifications ---------------------------------------------------------------------
 
-    def add_event(self, kind: str, title: str, body: str, job_id: str | None = None, conversation_id: str | None = None) -> Event:
+    def add_event(
+        self, kind: str, title: str, body: str, job_id: str | None = None, conversation_id: str | None = None
+    ) -> Event:
         event = Event(uuid.uuid4().hex[:12], kind, title, body[:300], job_id, conversation_id, _now(), False)
         with self._lock, closing(self._connect()) as db, db:
             db.execute(
@@ -200,7 +250,8 @@ class SchedulerStore:
                 (event.id, kind, title, event.body, job_id, conversation_id, event.created_at),
             )
             db.execute(
-                "DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY created_at DESC, id LIMIT ?)",
+                "DELETE FROM events WHERE id NOT IN "
+                "(SELECT id FROM events ORDER BY created_at DESC, id LIMIT ?)",
                 (MAX_EVENTS,),
             )
         return event

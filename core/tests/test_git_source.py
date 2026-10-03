@@ -117,17 +117,31 @@ async def test_a_repo_with_one_skill_in_a_folder_needs_no_choice(installer):
 
 async def test_a_repo_with_several_skills_asks_which_then_stays_pinned(installer):
     data = archive(
-        {"skills/notes/SKILL.md": skill_md(), "skills/other/SKILL.md": skill_md(name="other"), "README.md": "r"}
+        {
+            "skills/notes/SKILL.md": skill_md(),
+            "skills/other/SKILL.md": skill_md(name="other"),
+            "README.md": "r",
+        }
     )
     transport = github(data)
     choice = await stage_git(client_for(transport), installer, "https://github.com/owner/repo")
-    assert isinstance(choice, GitChoice) and choice.folders == ["skills/notes", "skills/other"] and choice.commit == SHA
+    assert (
+        isinstance(choice, GitChoice)
+        and choice.folders == ["skills/notes", "skills/other"]
+        and choice.commit == SHA
+    )
 
     seen: list[str] = []
     picked = await stage_git(
-        client_for(github(data, seen)), installer, "https://github.com/owner/repo", "skills/other", choice.commit
+        client_for(github(data, seen)),
+        installer,
+        "https://github.com/owner/repo",
+        "skills/other",
+        choice.commit,
     )
-    assert picked.name == "other" and not any("api.github.com" in u for u in seen)  # no second lookup of the branch
+    assert picked.name == "other" and not any(
+        "api.github.com" in u for u in seen
+    )  # no second lookup of the branch
 
 
 async def test_a_folder_address_installs_that_folder(installer):
@@ -140,7 +154,9 @@ async def test_a_folder_address_installs_that_folder(installer):
 
 async def test_failures_are_readable(installer, tmp_path):
     with pytest.raises(InstallError, match="no SKILL.md"):
-        await stage_git(client_for(github(archive({"README.md": "r"}))), installer, "https://github.com/owner/repo")
+        await stage_git(
+            client_for(github(archive({"README.md": "r"}))), installer, "https://github.com/owner/repo"
+        )
     with pytest.raises(InstallError, match="not a commit"):
         await stage_git(client_for(github(b"")), installer, "https://github.com/owner/repo", "x", "main")
     from piyo.skills.catalog import CatalogError
@@ -175,15 +191,23 @@ def test_api_stage_a_git_skill_and_install_it(tmp_path):
     assert res.status_code == 200 and res.json()["choose"] == []
     preview = res.json()["preview"]
     assert preview["source"].startswith("git github.com/owner/repo @ ") and preview["verified"] is False
-    ok = client.post("/api/skills/install", json={"token": preview["token"], "approved": preview["permissions"]}, headers=AUTH)
+    ok = client.post(
+        "/api/skills/install",
+        json={"token": preview["token"], "approved": preview["permissions"]},
+        headers=AUTH,
+    )
     assert ok.status_code == 201
     listed = client.get("/api/skills", headers=AUTH).json()["skills"][0]
     assert listed["install_source"].startswith("git github.com")
 
 
 def test_api_choice_and_errors(tmp_path):
-    client = make_client(tmp_path, archive({"skills/a/SKILL.md": skill_md(), "skills/b/SKILL.md": skill_md(name="b")}))
-    res = client.post("/api/skills/install/git", json={"url": "https://github.com/owner/repo"}, headers=AUTH).json()
+    client = make_client(
+        tmp_path, archive({"skills/a/SKILL.md": skill_md(), "skills/b/SKILL.md": skill_md(name="b")})
+    )
+    res = client.post(
+        "/api/skills/install/git", json={"url": "https://github.com/owner/repo"}, headers=AUTH
+    ).json()
     assert res["preview"] is None and res["choose"] == ["skills/a", "skills/b"] and res["commit"] == SHA
     again = client.post(
         "/api/skills/install/git",

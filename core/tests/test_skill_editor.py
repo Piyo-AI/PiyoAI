@@ -84,7 +84,9 @@ def test_save_cannot_rename_or_touch_builtin_or_missing_skills(parts):
 def test_rollback_restores_files_keeps_the_current_version_and_checks_permissions(parts):
     editor, _, user, _ = parts
     written(editor, tools=("files.read",))
-    editor.save("notes", skill_md(version="2.0.0", tools=("files.read", "gmail.send")), "", ["tool:gmail.send"])
+    editor.save(
+        "notes", skill_md(version="2.0.0", tools=("files.read", "gmail.send")), "", ["tool:gmail.send"]
+    )
     editor.save("notes", skill_md(version="3.0.0", tools=("files.read",)), "", [])
     oldest = editor.history("notes")[-1]
     assert oldest.version == "1.0.0"
@@ -92,7 +94,9 @@ def test_rollback_restores_files_keeps_the_current_version_and_checks_permission
     skill = editor.rollback("notes", oldest.id, [])
     assert skill.manifest.version == "1.0.0" and (user / "notes" / "SETUP.md").read_text() == "# Setup\n"
     assert not (user / "notes" / ".piyo-backup.json").exists()
-    assert editor.history("notes")[0].reason == "rollback"  # the version we left is kept: rollback can be undone
+    assert (
+        editor.history("notes")[0].reason == "rollback"
+    )  # the version we left is kept: rollback can be undone
     assert editor.history("notes")[0].version == "3.0.0"
 
     # 2.0.0 had gmail.send, which the current approved list no longer has: it needs approving again
@@ -143,7 +147,10 @@ def test_api_write_edit_history_rollback(tmp_path):
 
     body = {"skill_md": skill_md(tools=("files.read",)), "setup_md": "# S", "approved": []}
     assert client.post("/api/skills", json=body, headers=AUTH).status_code == 400
-    assert client.post("/api/skills", json={**body, "approved": ["tool:files.read"]}, headers=AUTH).status_code == 201
+    assert (
+        client.post("/api/skills", json={**body, "approved": ["tool:files.read"]}, headers=AUTH).status_code
+        == 201
+    )
     listed = client.get("/api/skills", headers=AUTH).json()["skills"][0]
     assert listed["name"] == "notes" and listed["removable"] is True
 

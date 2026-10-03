@@ -169,7 +169,10 @@ def test_api_browse_stage_install_and_see_it_installed(tmp_path):
     token, perms = staged.json()["token"], staged.json()["added"]
     refused = client.post("/api/skills/install", json={"token": token, "approved": []}, headers=AUTH)
     assert refused.status_code == 400
-    assert client.post("/api/skills/install", json={"token": token, "approved": perms}, headers=AUTH).status_code == 201
+    assert (
+        client.post("/api/skills/install", json={"token": token, "approved": perms}, headers=AUTH).status_code
+        == 201
+    )
 
     after = client.get("/api/catalog", headers=AUTH).json()["skills"][0]
     assert after["installed_version"] == "1.0.0"

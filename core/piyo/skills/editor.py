@@ -1,8 +1,9 @@
 """Writing and editing the user's own skills, with a history to roll back to (PLAN.md section 5).
 
-Only `SKILL.md` and `SETUP.md` are edited here; a skill's scripts stay as installed. Every save keeps the previous
-version first. A save that adds a permission the skill did not have needs that permission approved, the same
-rule as an update from a file: whoever sees the editor sees what the skill will be allowed to do.
+Only `SKILL.md` and `SETUP.md` are edited here; a skill's scripts stay as installed. Every save keeps the
+previous version first. A save that adds a permission the skill did not have needs that permission
+approved, the same rule as an update from a file: whoever sees the editor sees what the skill will be
+allowed to do.
 """
 
 from __future__ import annotations
@@ -99,14 +100,19 @@ class SkillEditor:
         try:
             manifest, _ = parse_skill_md(_text(skill_md, "SKILL.md"))
             if name and manifest.name != name:
-                return Check(False, f"The name must stay {name!r} (it is the folder name). Create a new skill to rename.")
+                return Check(
+                    False,
+                    f"The name must stay {name!r} (it is the folder name). Create a new skill to rename.",
+                )
             scripts = []
             if name:
                 existing = self.user_dir / name / "scripts"
                 scripts = sorted(p.name for p in existing.iterdir()) if existing.is_dir() else []
         except (SkillError, InstallError) as e:
             return Check(False, str(e))
-        draft = Skill(manifest=manifest, path=self.user_dir / manifest.name, body="", source="user", scripts=scripts)
+        draft = Skill(
+            manifest=manifest, path=self.user_dir / manifest.name, body="", source="user", scripts=scripts
+        )
         perms = permissions_of(draft)
         have = _approved(self.user_dir / manifest.name) if (self.user_dir / manifest.name).is_dir() else []
         return Check(True, None, manifest.name, manifest.version, perms, [p for p in perms if p not in have])
@@ -161,7 +167,9 @@ class SkillEditor:
             setup.unlink(missing_ok=True)
 
     @staticmethod
-    def _write_meta(folder: Path, source: str, permissions: list[str] | None, old: dict | None = None) -> None:
+    def _write_meta(
+        folder: Path, source: str, permissions: list[str] | None, old: dict | None = None
+    ) -> None:
         meta = {**(old or {}), "source": source, "approved": permissions or []}
         meta["edited_at"] = datetime.now(UTC).isoformat(timespec="seconds")
         (folder / META_FILE).write_text(json.dumps(meta), encoding="utf-8")
@@ -177,7 +185,9 @@ class SkillEditor:
                 info = json.loads((folder / BACKUP_FILE).read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
-            versions.append(Version(folder.name, str(info.get("version")), str(info.get("at")), str(info.get("reason"))))
+            versions.append(
+                Version(folder.name, str(info.get("version")), str(info.get("at")), str(info.get("reason")))
+            )
         return versions
 
     def _prune(self, name: str) -> None:
@@ -199,7 +209,9 @@ class SkillEditor:
             raise InstallError(f"That version can not be restored: {e}") from None
         scripts_dir = source / "scripts"
         scripts = sorted(p.name for p in scripts_dir.iterdir()) if scripts_dir.is_dir() else []
-        perms = permissions_of(Skill(manifest=manifest, path=source, body=body, source="user", scripts=scripts))
+        perms = permissions_of(
+            Skill(manifest=manifest, path=source, body=body, source="user", scripts=scripts)
+        )
         have = _approved(path)
         missing = [p for p in perms if p not in have and p not in approved]
         if missing:
@@ -212,6 +224,8 @@ class SkillEditor:
         for child in source.iterdir():
             if child.name in (BACKUP_FILE, META_FILE):
                 continue
-            shutil.copytree(child, path / child.name) if child.is_dir() else shutil.copy2(child, path / child.name)
+            shutil.copytree(child, path / child.name) if child.is_dir() else shutil.copy2(
+                child, path / child.name
+            )
         self._write_meta(path, keep_meta.get("source") or "written in Piyo", perms, keep_meta)
         return load_skill_dir(path, "user")

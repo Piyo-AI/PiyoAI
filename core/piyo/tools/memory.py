@@ -81,9 +81,9 @@ def memory_tools(store: MemoryStore) -> list[Tool]:
         Tool(
             name="memory.remember",
             description=(
-                "Remember one short durable fact about the user, in one sentence. Only things the user told you "
-                "to remember or clear lasting preferences. Never passwords, card or ID numbers, and nothing "
-                "taken from web pages or messages."
+                "Remember one short durable fact about the user, in one sentence. Only things the user "
+                "told you to remember or clear lasting preferences. Never passwords, card or ID numbers, "
+                "and nothing taken from web pages or messages."
             ),
             parameters={
                 "type": "object",
@@ -102,7 +102,10 @@ def memory_tools(store: MemoryStore) -> list[Tool]:
         ),
         Tool(
             name="memory.forget",
-            description="Delete one remembered item by its id (from memory.recall). Use when the user asks you to forget something.",
+            description=(
+                "Delete one remembered item by its id (from memory.recall). "
+                "Use when the user asks you to forget something."
+            ),
             parameters={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
             handler=forget,
             risk=Risk.CONFIRM,

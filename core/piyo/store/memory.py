@@ -103,7 +103,8 @@ class MemoryStore:
         if not self._ready:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, category TEXT NOT NULL, "
-                "text TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
+                "text TEXT NOT NULL, source TEXT NOT NULL, created_at TEXT NOT NULL, "
+                "updated_at TEXT NOT NULL)"
             )
             self._ready = True
         return db
@@ -119,7 +120,9 @@ class MemoryStore:
                 f"The {category} category is switched off. The user can allow it in Settings > Memory; "
                 "until then do not store it."
             )
-        raise MemoryRefused(f"Unknown category {category!r}. Use one of: {', '.join(self.allowed_categories())}.")
+        raise MemoryRefused(
+            f"Unknown category {category!r}. Use one of: {', '.join(self.allowed_categories())}."
+        )
 
     # -- writes ----------------------------------------------------------------------------
 

@@ -1,12 +1,13 @@
 """Runs the helper scripts a skill ships (`scripts/*.py`, `*.js`, `*.ts`), PLAN.md section 5.
 
-A script gets one JSON value on stdin and must print one JSON value on stdout. Both runtimes share the limits:
-a timeout, a cap on output size, a scrubbed environment (only the secrets the skill declared), and a throw-away
-working directory. Anything over a limit is killed and reported; nothing is partially trusted.
+A script gets one JSON value on stdin and must print one JSON value on stdout. Both runtimes share the
+limits: a timeout, a cap on output size, a scrubbed environment (only the secrets the skill declared),
+and a throw-away working directory. Anything over a limit is killed and reported; nothing is partially
+trusted.
 
 What each runtime can and cannot enforce (be honest about it, the user sees this in the install review):
-- **Deno** has a real permission sandbox: reads only the skill folder, network only the hosts the skill declared,
-  no writes, no subprocesses, no environment access.
+- **Deno** has a real permission sandbox: reads only the skill folder, network only the hosts the skill
+  declared, no writes, no subprocesses, no environment access.
 - **Python** has no such sandbox. Each skill gets its own virtual environment, a separate process, a scrubbed
   environment and a temporary working directory, and sockets are blocked unless the skill declares network
   access. That socket block is a guard against mistakes, not against hostile code: a script that wants to can
@@ -121,7 +122,9 @@ class ScriptRunner:
 
     async def _python(self, skill: Skill, path: Path, runtime: dict, env: dict) -> tuple[list[str], dict]:
         if not self._uv_bin:
-            raise ScriptError("Python scripts need uv, which was not found. Install uv (https://docs.astral.sh/uv/).")
+            raise ScriptError(
+                "Python scripts need uv, which was not found. Install uv (https://docs.astral.sh/uv/)."
+            )
         deps = [str(d) for d in runtime.get("dependencies") or []]
         version = f"{sys.version_info.major}.{sys.version_info.minor}"
         key = hashlib.sha256(json.dumps([version, sorted(deps)]).encode()).hexdigest()[:12]
@@ -130,10 +133,13 @@ class ScriptRunner:
         if not python.is_file():
             shutil.rmtree(venv, ignore_errors=True)
             venv.parent.mkdir(parents=True, exist_ok=True)
-            await self._setup([self._uv_bin, "venv", "--python", version, str(venv)], "create the environment")
+            await self._setup(
+                [self._uv_bin, "venv", "--python", version, str(venv)], "create the environment"
+            )
             if deps:
                 await self._setup(
-                    [self._uv_bin, "pip", "install", "--python", str(python), *deps], "install the dependencies"
+                    [self._uv_bin, "pip", "install", "--python", str(python), *deps],
+                    "install the dependencies",
                 )
         if runtime.get("network") is True:
             env["PIYO_ALLOW_NET"] = "1"
@@ -151,7 +157,9 @@ class ScriptRunner:
 
     async def _deno(self, skill: Skill, path: Path, runtime: dict, env: dict) -> tuple[list[str], dict]:
         if not self._deno_bin:
-            raise ScriptError("JavaScript and TypeScript scripts need Deno, which was not found. Install Deno (https://deno.com).")
+            raise ScriptError(
+                "JavaScript and TypeScript scripts need Deno, which was not found. Install Deno (https://deno.com)."
+            )
         cache = self.work_dir / "deno-cache"
         cache.mkdir(parents=True, exist_ok=True)
         env = {**env, "DENO_DIR": str(cache), "DENO_NO_UPDATE_CHECK": "1"}
@@ -182,7 +190,9 @@ class ScriptRunner:
         if proc.returncode != 0:
             raise ScriptError(f"Could not {what}: {_last_lines(err)}")
 
-    async def _execute(self, command: list[str], env: dict, cwd: str, payload: bytes, timeout: float) -> bytes:
+    async def _execute(
+        self, command: list[str], env: dict, cwd: str, payload: bytes, timeout: float
+    ) -> bytes:
         try:
             proc = await asyncio.create_subprocess_exec(
                 *command,
@@ -213,7 +223,9 @@ class ScriptRunner:
             return bytes(data), False
 
         async def work():
-            return await asyncio.gather(feed(), capped(proc.stdout, MAX_OUTPUT_BYTES), capped(proc.stderr, MAX_STDERR_BYTES))
+            return await asyncio.gather(
+                feed(), capped(proc.stdout, MAX_OUTPUT_BYTES), capped(proc.stderr, MAX_STDERR_BYTES)
+            )
 
         try:
             _, (out, too_big), (err, _) = await asyncio.wait_for(work(), timeout)

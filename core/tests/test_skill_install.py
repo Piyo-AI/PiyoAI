@@ -1,5 +1,5 @@
-import json
 import io
+import json
 import stat
 import zipfile
 
@@ -59,7 +59,9 @@ def test_update_only_asks_for_new_permissions_and_keeps_a_backup(installer, tmp_
     first = installer.stage_zip(make_zip({"SKILL.md": skill_md()}))
     installer.commit(first.token, first.permissions)
 
-    update = installer.stage_zip(make_zip({"SKILL.md": skill_md(version="2.0.0", tools=("files.read", "gmail.send"))}))
+    update = installer.stage_zip(
+        make_zip({"SKILL.md": skill_md(version="2.0.0", tools=("files.read", "gmail.send"))})
+    )
     assert update.installed_version == "1.0.0" and update.added == ["tool:gmail.send"]
     with pytest.raises(InstallError, match="gmail.send"):
         installer.commit(update.token, [])  # blocked until re-approved
@@ -74,7 +76,9 @@ def test_a_dropped_permission_must_be_approved_again(installer):
     installer.commit(first.token, first.permissions)
     narrower = installer.stage_zip(make_zip({"SKILL.md": skill_md(version="1.1.0")}))
     installer.commit(narrower.token, [])
-    wider = installer.stage_zip(make_zip({"SKILL.md": skill_md(version="1.2.0", tools=("files.read", "gmail.send"))}))
+    wider = installer.stage_zip(
+        make_zip({"SKILL.md": skill_md(version="1.2.0", tools=("files.read", "gmail.send"))})
+    )
     assert wider.added == ["tool:gmail.send"]
 
 
@@ -142,7 +146,14 @@ def test_install_metadata_inside_a_package_is_ignored(installer, tmp_path):
     forged = '{"approved": ["tool:files.read"]}'
     first = installer.stage_zip(make_zip({"SKILL.md": skill_md(), ".piyo-install.json": forged}))
     installer.commit(first.token, first.permissions)
-    update = installer.stage_zip(make_zip({"SKILL.md": skill_md(version="2", tools=("gmail.send",)), ".piyo-install.json": '{"approved": ["tool:gmail.send"]}'}))
+    update = installer.stage_zip(
+        make_zip(
+            {
+                "SKILL.md": skill_md(version="2", tools=("gmail.send",)),
+                ".piyo-install.json": '{"approved": ["tool:gmail.send"]}',
+            }
+        )
+    )
     assert update.added == ["tool:gmail.send"]
 
 
@@ -194,7 +205,9 @@ def test_api_bad_zip_and_cancel(tmp_path):
         "/api/skills/install/preview", content=make_zip({"SKILL.md": skill_md()}), headers=AUTH
     ).json()["token"]
     assert client.delete(f"/api/skills/install/{token}", headers=AUTH).status_code == 204
-    gone = client.post("/api/skills/install", json={"token": token, "approved": ["tool:files.read"]}, headers=AUTH)
+    gone = client.post(
+        "/api/skills/install", json={"token": token, "approved": ["tool:files.read"]}, headers=AUTH
+    )
     assert gone.status_code == 400
     assert client.post("/api/skills/install/preview", content=b"x").status_code in (401, 403)
 
@@ -225,14 +238,23 @@ def test_api_skill_secrets_are_stored_in_the_keychain_and_removed_with_the_skill
     client = make_client(tmp_path)
     data = make_zip({"SKILL.md": skill_md(extra="  secrets: [API_KEY]\n")})
     token = client.post("/api/skills/install/preview", content=data, headers=AUTH).json()
-    client.post("/api/skills/install", json={"token": token["token"], "approved": token["permissions"]}, headers=AUTH)
+    client.post(
+        "/api/skills/install", json={"token": token["token"], "approved": token["permissions"]}, headers=AUTH
+    )
     listed = client.get("/api/skills", headers=AUTH).json()["skills"][0]
     assert listed["secrets"] == ["API_KEY"] and listed["secrets_set"] == []
 
-    assert client.put("/api/skills/notes/secrets/API_KEY", json={"value": "  "}, headers=AUTH).status_code == 400
+    assert (
+        client.put("/api/skills/notes/secrets/API_KEY", json={"value": "  "}, headers=AUTH).status_code == 400
+    )
     assert client.put("/api/skills/notes/secrets/OTHER", json={"value": "x"}, headers=AUTH).status_code == 404
-    assert client.put("/api/skills/nope/secrets/API_KEY", json={"value": "x"}, headers=AUTH).status_code == 404
-    assert client.put("/api/skills/notes/secrets/API_KEY", json={"value": "abc123"}, headers=AUTH).status_code == 204
+    assert (
+        client.put("/api/skills/nope/secrets/API_KEY", json={"value": "x"}, headers=AUTH).status_code == 404
+    )
+    assert (
+        client.put("/api/skills/notes/secrets/API_KEY", json={"value": "abc123"}, headers=AUTH).status_code
+        == 204
+    )
     assert keyring.get_password("PiyoAI", "skill.notes.API_KEY") == "abc123"
     listed = client.get("/api/skills", headers=AUTH).json()["skills"][0]
     assert listed["secrets_set"] == ["API_KEY"] and "abc123" not in json.dumps(listed)
@@ -250,7 +272,11 @@ def test_uninstall_also_removes_the_skills_python_environments(tmp_path):
     client = make_client(tmp_path)
     data = make_zip({"SKILL.md": skill_md()})
     staged = client.post("/api/skills/install/preview", content=data, headers=AUTH).json()
-    client.post("/api/skills/install", json={"token": staged["token"], "approved": staged["permissions"]}, headers=AUTH)
+    client.post(
+        "/api/skills/install",
+        json={"token": staged["token"], "approved": staged["permissions"]},
+        headers=AUTH,
+    )
     envs = data_dir() / "scripts" / "skill-envs"
     (envs / "notes-0123456789ab" / "bin").mkdir(parents=True)
     (envs / "notes-pro-0123456789ab").mkdir()  # a different skill whose name starts the same

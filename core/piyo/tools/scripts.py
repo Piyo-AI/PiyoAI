@@ -15,7 +15,9 @@ def script_tools(runner: ScriptRunner, skills: SkillRegistry) -> list[Tool]:
         name, script = str(args.get("skill") or ""), str(args.get("script") or "")
         skill = ctx.skills.get(name)
         if skill is None or name not in ctx.active_skills:
-            raise ValueError(f"Load the skill {name!r} first (load_skill); only a loaded skill can run its scripts.")
+            raise ValueError(
+                f"Load the skill {name!r} first (load_skill); only a loaded skill can run its scripts."
+            )
         extra = args.get("args") or {}
         if not isinstance(extra, dict):
             raise ValueError("args must be a JSON object.")
@@ -39,8 +41,9 @@ def script_tools(runner: ScriptRunner, skills: SkillRegistry) -> list[Tool]:
         Tool(
             name="skill.run_script",
             description=(
-                "Run one of the helper scripts a loaded skill lists under 'Scripts'. Pass the skill name, the script "
-                "file name and a JSON object of arguments; you get back the JSON the script printed."
+                "Run one of the helper scripts a loaded skill lists under 'Scripts'. Pass the skill "
+                "name, the script file name and a JSON object of arguments; you get back the JSON the "
+                "script printed."
             ),
             parameters={
                 "type": "object",

@@ -1,9 +1,10 @@
 """Install a skill from a GitHub address, pinned to one commit (PLAN.md section 5).
 
-Accepted: `https://github.com/<owner>/<repo>`, `.../tree/<ref>` and `.../tree/<ref>/<folder>`. The branch or tag
-is resolved to a commit hash first and that exact commit is downloaded as an archive, so nothing moves under the
-user between the review and the install. No `git` program runs, and only api.github.com and codeload.github.com
-are contacted (the same fixed hosts as the catalog). Everything installed this way is unverified.
+Accepted: `https://github.com/<owner>/<repo>`, `.../tree/<ref>` and `.../tree/<ref>/<folder>`. The branch
+or tag is resolved to a commit hash first and that exact commit is downloaded as an archive, so nothing
+moves under the user between the review and the install. No `git` program runs, and only api.github.com
+and codeload.github.com are contacted (the same fixed hosts as the catalog). Everything installed this
+way is unverified.
 """
 
 from __future__ import annotations
@@ -45,12 +46,16 @@ def parse_address(url: str) -> GitAddress:
         raise InstallError("Use the plain address of the repository, without a login or parameters.")
     parts = [unquote(p) for p in parsed.path.split("/") if p]
     if len(parts) < 2:
-        raise InstallError("That address needs an owner and a repository, like https://github.com/owner/repo.")
+        raise InstallError(
+            "That address needs an owner and a repository, like https://github.com/owner/repo."
+        )
     owner, name = parts[0], parts[1].removesuffix(".git")
     ref, folder = None, ""
     if len(parts) > 2:
         if parts[2] != "tree" or len(parts) < 4:
-            raise InstallError("Use the repository address, or one that points to a folder (.../tree/<branch>/<folder>).")
+            raise InstallError(
+                "Use the repository address, or one that points to a folder (.../tree/<branch>/<folder>)."
+            )
         ref, folder = parts[3], "/".join(parts[4:])
     if not _NAME.fullmatch(owner) or not _NAME.fullmatch(name) or (ref and ".." in ref):
         raise InstallError("That does not look like a GitHub repository address.")
@@ -95,4 +100,3 @@ async def stage_git(
             wanted = folders[0]
     source = f"git github.com/{address.repo} @ {commit[:7]}" + (f" ({wanted})" if wanted else "")
     return installer.stage_zip(data, subpath=wanted, source=source, max_zip_bytes=MAX_DOWNLOAD_BYTES)
-

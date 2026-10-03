@@ -2,7 +2,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-from test_runs import AUTH, TOKEN, scripted
+from test_runs import AUTH, TOKEN
 
 from piyo.models.turn import Message, TextDelta, ToolCall, TurnDone
 from piyo.server import app as server
@@ -25,7 +25,10 @@ from piyo.store import ConversationStore
 def chat_messages():
     """A finished chat: the user asks, Piyo lists a folder and moves files, one call fails."""
     return [
-        Message(role="user", content="Sort my Downloads at C:\\Users\\asha\\Downloads by type, mail me at asha@example.com"),
+        Message(
+            role="user",
+            content="Sort my Downloads at C:\\Users\\asha\\Downloads by type, mail me at asha@example.com",
+        ),
         Message(
             role="assistant",
             content="Listing it.",
@@ -88,10 +91,18 @@ def test_tools_come_from_what_the_chat_really_used():
 def test_scrub_removes_secrets_and_personal_details():
     text = (
         "Mail asha@example.com or call +91 98765 43210. Key sk-abcdefghijklmnop1234. "
-        "Open C:\\Users\\asha\\Documents\\tax.pdf and https://x.example/a?token=abc123&u=1. Card 4111111111111111."
+        "Open C:\\Users\\asha\\Documents\\tax.pdf and https://x.example/a?token=abc123&u=1. "
+        "Card 4111111111111111."
     )
     clean, removed = scrub(text)
-    for leak in ("asha@example.com", "98765", "sk-abcdefgh", "asha\\Documents", "token=abc123", "4111111111111111"):
+    for leak in (
+        "asha@example.com",
+        "98765",
+        "sk-abcdefgh",
+        "asha\\Documents",
+        "token=abc123",
+        "4111111111111111",
+    ):
         assert leak not in clean
     assert "https://x.example/a" in clean and "<email address>" in clean
     assert any("email" in r for r in removed) and any("keys" in r for r in removed)
@@ -141,7 +152,9 @@ async def test_google_tools_bring_the_integration():
     assert parse_skill_md(draft.skill_md)[0].requires.integrations == ["google"]
 
 
-@pytest.mark.parametrize("reply", ["no json here", "{not json}", "[1, 2]", json.dumps({"name": "x", "steps": ""})])
+@pytest.mark.parametrize(
+    "reply", ["no json here", "{not json}", "[1, 2]", json.dumps({"name": "x", "steps": ""})]
+)
 async def test_bad_model_output_gives_a_readable_error(reply):
     with pytest.raises(SkillError, match="Try again|draft"):
         await draft_from_chat(fake_turn(reply), None, "m", chat_messages(), set())
@@ -149,7 +162,9 @@ async def test_bad_model_output_gives_a_readable_error(reply):
 
 async def test_a_chat_without_tools_is_refused():
     with pytest.raises(SkillError, match="enough tools"):
-        await draft_from_chat(fake_turn(model_reply()), None, "m", [Message(role="user", content="hi")], set())
+        await draft_from_chat(
+            fake_turn(model_reply()), None, "m", [Message(role="user", content="hi")], set()
+        )
 
 
 async def test_model_json_wrapped_in_prose_still_parses():
@@ -161,19 +176,35 @@ async def test_model_json_wrapped_in_prose_still_parses():
 # -- refining --------------------------------------------------------------------------------
 
 CURRENT = (
-    "---\nname: sorter\nversion: 1.2.0\ndescription: Sort files.\nrequires:\n  tools: [files.list, files.move]\n---\n\n"
+    "---\nname: sorter\nversion: 1.2.0\ndescription: Sort files.\nrequires:\n"
+    "  tools: [files.list, files.move]\n---\n\n"
     "1. List the folder.\n2. Move files.\n"
 )
 
 
 async def test_a_refinement_keeps_the_skills_own_settings_and_shows_a_diff():
-    turn = fake_turn(json.dumps({"description": "Sort files by type.", "steps": "1. List the folder.\n2. Ask before moving.\n3. Move files.", "setup": ""}))
+    turn = fake_turn(
+        json.dumps(
+            {
+                "description": "Sort files by type.",
+                "steps": "1. List the folder.\n2. Ask before moving.\n3. Move files.",
+                "setup": "",
+            }
+        )
+    )
     draft = await refine_from_chat(turn, None, "m", CURRENT, chat_messages(), "it moved without asking")
     manifest, body = parse_skill_md(draft.skill_md)
     assert manifest.version == "1.2.1" and manifest.name == "sorter"
-    assert manifest.requires.tools == ["files.list", "files.move"] and manifest.description == "Sort files by type."
+    assert (
+        manifest.requires.tools == ["files.list", "files.move"]
+        and manifest.description == "Sort files by type."
+    )
     assert "Ask before moving" in body
-    assert "+2. Ask before moving." in draft.diff and "-2. Move files." in draft.diff and "-version: 1.2.0" in draft.diff
+    assert (
+        "+2. Ask before moving." in draft.diff
+        and "-2. Move files." in draft.diff
+        and "-version: 1.2.0" in draft.diff
+    )
     assert "it moved without asking" in turn.seen["prompt"]
 
 
@@ -196,7 +227,9 @@ def test_api_learn_a_skill_review_it_and_it_starts_switched_off(tmp_path):
     assert draft.status_code == 200 and draft.json()["tools"] == ["files.list", "files.move"]
     d = draft.json()
     save = {"skill_md": d["skill_md"], "setup_md": d["setup_md"], "approved": [], "learned": True}
-    assert client.post("/api/skills", json=save, headers=AUTH).status_code == 400  # permissions still need approving
+    assert (
+        client.post("/api/skills", json=save, headers=AUTH).status_code == 400
+    )  # permissions still need approving
     perms = client.post("/api/skills/check", json={"skill_md": d["skill_md"]}, headers=AUTH).json()["added"]
     assert client.post("/api/skills", json={**save, "approved": perms}, headers=AUTH).status_code == 201
     skill = client.get("/api/skills", headers=AUTH).json()["skills"][0]
@@ -209,18 +242,38 @@ def test_api_errors(tmp_path):
     client, cid = make_client(tmp_path, "not json")
     ok = {"conversation_id": cid, "provider": "ollama", "model": "m"}
     assert client.post("/api/skills/draft", json=ok, headers=AUTH).status_code == 422
-    assert client.post("/api/skills/draft", json={**ok, "conversation_id": "nope"}, headers=AUTH).status_code == 404
+    assert (
+        client.post("/api/skills/draft", json={**ok, "conversation_id": "nope"}, headers=AUTH).status_code
+        == 404
+    )
     assert client.post("/api/skills/draft", json={**ok, "provider": "nope"}, headers=AUTH).status_code == 404
     empty = ConversationStore().create().id
-    assert client.post("/api/skills/draft", json={**ok, "conversation_id": empty}, headers=AUTH).status_code == 400
+    assert (
+        client.post("/api/skills/draft", json={**ok, "conversation_id": empty}, headers=AUTH).status_code
+        == 400
+    )
     assert client.post("/api/skills/ghost/refine", json=ok, headers=AUTH).status_code == 400
 
 
 def test_api_refine_an_installed_skill(tmp_path):
     reply = json.dumps({"description": "Sort files.", "steps": "1. Ask first.\n2. Move.", "setup": ""})
     client, cid = make_client(tmp_path, reply)
-    created = client.post("/api/skills", json={"skill_md": CURRENT, "setup_md": "", "approved": ["tool:files.list", "tool:files.move"]}, headers=AUTH)
+    created = client.post(
+        "/api/skills",
+        json={"skill_md": CURRENT, "setup_md": "", "approved": ["tool:files.list", "tool:files.move"]},
+        headers=AUTH,
+    )
     assert created.status_code == 201
-    out = client.post("/api/skills/sorter/refine", json={"conversation_id": cid, "provider": "ollama", "model": "m", "note": "too eager"}, headers=AUTH)
-    assert out.status_code == 200 and "1.2.1" in out.json()["skill_md"] and "+1. Ask first." in out.json()["diff"]
-    assert client.get("/api/skills/sorter/files", headers=AUTH).json()["skill_md"] == CURRENT  # nothing saved by asking
+    out = client.post(
+        "/api/skills/sorter/refine",
+        json={"conversation_id": cid, "provider": "ollama", "model": "m", "note": "too eager"},
+        headers=AUTH,
+    )
+    assert (
+        out.status_code == 200
+        and "1.2.1" in out.json()["skill_md"]
+        and "+1. Ask first." in out.json()["diff"]
+    )
+    assert (
+        client.get("/api/skills/sorter/files", headers=AUTH).json()["skill_md"] == CURRENT
+    )  # nothing saved by asking

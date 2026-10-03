@@ -66,9 +66,12 @@ class CatalogClient:
             raise CatalogError("Refusing to contact an unexpected address.")
         headers = {"User-Agent": "PiyoAI", **({"Accept": accept} if accept else {})}
         try:
-            async with httpx.AsyncClient(
-                transport=self._transport, follow_redirects=False, timeout=20.0, headers=headers
-            ) as client, client.stream("GET", url) as res:
+            async with (
+                httpx.AsyncClient(
+                    transport=self._transport, follow_redirects=False, timeout=20.0, headers=headers
+                ) as client,
+                client.stream("GET", url) as res,
+            ):
                 if res.status_code == 404:
                     raise CatalogError("The skill catalog was not found. Is the repository public?")
                 if res.status_code in (403, 429):
@@ -102,7 +105,9 @@ class CatalogClient:
         if commit is not None and not _SHA.fullmatch(commit):
             raise CatalogError("That is not a commit.")
         commit = commit or await self._resolve()
-        raw = await self._get(f"https://raw.githubusercontent.com/{self.repo}/{commit}/index.json", MAX_INDEX_BYTES)
+        raw = await self._get(
+            f"https://raw.githubusercontent.com/{self.repo}/{commit}/index.json", MAX_INDEX_BYTES
+        )
         try:
             doc = json.loads(raw)
         except ValueError:
@@ -123,7 +128,9 @@ class CatalogClient:
         entry = next((e for e in catalog.skills if e.name == name), None)
         if entry is None:
             raise InstallError(f"The catalog has no skill called {name!r}.")
-        data = await self._get(f"https://codeload.github.com/{self.repo}/zip/{catalog.commit}", MAX_DOWNLOAD_BYTES)
+        data = await self._get(
+            f"https://codeload.github.com/{self.repo}/zip/{catalog.commit}", MAX_DOWNLOAD_BYTES
+        )
         preview = installer.stage_zip(
             data,
             subpath=entry.path,

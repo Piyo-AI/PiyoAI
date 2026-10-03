@@ -15,13 +15,13 @@ from pydantic import BaseModel, ValidationError
 from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
 from piyo.config import data_dir
-from piyo.config.secrets import delete_secret, get_secret, set_secret
 from piyo.config.browser_rules import BrowserRules
 from piyo.config.folders import ApprovedFolders, FolderGrant
 from piyo.config.model_limits import ContextLimits, ModelLimits
 from piyo.config.model_prices import ModelPrices, Price
 from piyo.config.model_vision import ModelVision
 from piyo.config.run_settings import RunSettings
+from piyo.config.secrets import delete_secret, get_secret, set_secret
 from piyo.config.skill_state import SkillState
 from piyo.config.tool_modes import ToolModes
 from piyo.integrations.google import SCOPE_GROUPS, GoogleAuth, GoogleError
@@ -39,8 +39,8 @@ from piyo.models.capabilities import ModelCaps, model_issues
 from piyo.models.prompt_tools import native_with_fallback, prompt_turn
 from piyo.models.turn import Message, stream_turn
 from piyo.safety import ApprovalRequest, PermissionGate
-from piyo.skills import SkillError, SkillRegistry
 from piyo.scheduler import RuleError, RunResult, Scheduler, SchedulerStore, describe
+from piyo.skills import SkillError, SkillRegistry
 from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
 from piyo.skills.editor import TEMPLATE, SkillEditor
 from piyo.skills.git_source import GitChoice, stage_git
@@ -56,17 +56,17 @@ from piyo.store import (
     UnknownRun,
     complete_tool_calls,
 )
+from piyo.store.memory import SENSITIVE_CATEGORIES, MemoryRefused, MemoryStore
 from piyo.tools import RunContext, ToolRegistry, core_tools
 from piyo.tools import search as search_mod
 from piyo.tools.browser import BrowserInstaller, BrowserSession, PlaywrightSession, browser_tools
 from piyo.tools.calendar import calendar_tools
 from piyo.tools.files import file_tools
-from piyo.store.memory import SENSITIVE_CATEGORIES, MemoryRefused, MemoryStore
 from piyo.tools.gmail import gmail_tools
+from piyo.tools.google import google_account_tools
 from piyo.tools.memory import memory_tools, profile_prompt
 from piyo.tools.schedule import schedule_tools
 from piyo.tools.scripts import script_tools
-from piyo.tools.google import google_account_tools
 from piyo.tools.search import search_tools
 from piyo.tools.weather import weather_tools
 from piyo.tools.web import web_tools
@@ -1041,7 +1041,11 @@ def create_app(
                         if (issue := integration_issue(i))
                     },
                     secrets=sk.manifest.requires.secrets,
-                    secrets_set=[n for n in sk.manifest.requires.secrets if get_secret(secret_name(sk.manifest.name, n))],
+                    secrets_set=[
+                        n
+                        for n in sk.manifest.requires.secrets
+                        if get_secret(secret_name(sk.manifest.name, n))
+                    ],
                     model_needs=sk.manifest.requires.model.model_dump(exclude_defaults=True),
                     model_issues=model_issues(sk.manifest.requires.model, caps) if caps else [],
                     removable=sk.source == "user",
@@ -1064,7 +1068,9 @@ def create_app(
 
     def skill_installer() -> SkillInstaller:
         return SkillInstaller(
-            skills.user_dir, data_dir() / "install", {s.manifest.name for s in skills.list() if s.source == "builtin"}
+            skills.user_dir,
+            data_dir() / "install",
+            {s.manifest.name for s in skills.list() if s.source == "builtin"},
         )
 
     @app.post("/api/skills/install/preview", dependencies=auth)
@@ -1157,9 +1163,11 @@ def create_app(
     async def stage_catalog_skill(body: CatalogInstallIn) -> InstallPreviewOut:
         """Downloads one catalog skill for review; finish with POST /api/skills/install like any other."""
         try:
-            return InstallPreviewOut(**vars(await catalog_client.stage(skill_installer(), body.name, body.commit)))
+            staged = await catalog_client.stage(skill_installer(), body.name, body.commit)
+            return InstallPreviewOut(**vars(staged))
         except (CatalogError, InstallError) as e:
-            raise HTTPException(status_code=502 if isinstance(e, CatalogError) else 400, detail=str(e)) from None
+            code = 502 if isinstance(e, CatalogError) else 400
+            raise HTTPException(status_code=code, detail=str(e)) from None
 
     @app.post("/api/skills/install/git", dependencies=auth)
     async def stage_git_skill(body: GitInstallIn) -> GitStageOut:
@@ -1170,7 +1178,8 @@ def create_app(
                 skill_installer(), body.url, body.folder, body.commit,
             )
         except (CatalogError, InstallError) as e:
-            raise HTTPException(status_code=502 if isinstance(e, CatalogError) else 400, detail=str(e)) from None
+            code = 502 if isinstance(e, CatalogError) else 400
+            raise HTTPException(status_code=code, detail=str(e)) from None
         if isinstance(found, GitChoice):
             return GitStageOut(choose=found.folders, commit=found.commit)
         return GitStageOut(preview=InstallPreviewOut(**vars(found)))
@@ -1205,7 +1214,9 @@ def create_app(
 
     def skill_editor() -> SkillEditor:
         return SkillEditor(
-            skills.user_dir, data_dir() / "install", {s.manifest.name for s in skills.list() if s.source == "builtin"}
+            skills.user_dir,
+            data_dir() / "install",
+            {s.manifest.name for s in skills.list() if s.source == "builtin"},
         )
 
     def editing(action):
@@ -1240,17 +1251,23 @@ def create_app(
         if run_settings.get().local_only and not provider.local:
             raise HTTPException(
                 status_code=400,
-                detail=f"Local-only mode is on and {provider.name} is a cloud provider. Pick a local model first.",
+                detail=(
+                    f"Local-only mode is on and {provider.name} is a cloud provider. "
+                    "Pick a local model first."
+                ),
             )
         conv = conversation_or_404(body.conversation_id)
-        max_tokens = min(limits.resolve(provider.id, body.model, reported.get((provider.id, body.model))), 4096)
+        known = reported.get((provider.id, body.model))
+        max_tokens = min(limits.resolve(provider.id, body.model, known), 4096)
         return provider, conv.messages, turn_for(provider.id, body.model), max_tokens
 
     @app.post("/api/skills/draft", dependencies=auth)
     async def draft_skill(body: LearnIn) -> DraftOut:
         provider, messages, turn, max_tokens = await learn_context(body)
         if not worth_a_skill(messages):
-            raise HTTPException(status_code=400, detail="This chat did not use enough tools to learn a skill from.")
+            raise HTTPException(
+                status_code=400, detail="This chat did not use enough tools to learn a skill from."
+            )
         taken = {sk.manifest.name for sk in skills.list()}
         try:
             draft = await draft_from_chat(turn, provider, body.model, messages, taken, max_tokens)
@@ -1265,7 +1282,9 @@ def create_app(
         provider, messages, turn, max_tokens = await learn_context(body)
         current = editing(lambda: skill_editor().read(name))["skill_md"]
         try:
-            draft = await refine_from_chat(turn, provider, body.model, current, messages, body.note, max_tokens)
+            draft = await refine_from_chat(
+                turn, provider, body.model, current, messages, body.note, max_tokens
+            )
         except SkillError as e:
             raise HTTPException(status_code=422, detail=str(e)) from None
         except Exception as e:
@@ -1379,7 +1398,9 @@ def create_app(
             PermissionGate(approver),
             max_tokens=limits.resolve(provider.id, model, reported.get((provider.id, model))),
             turn_fn=turn_for(provider.id, model),
-            context_tokens=context_limits.resolve(provider.id, model, reported_context.get((provider.id, model))),
+            context_tokens=context_limits.resolve(
+                provider.id, model, reported_context.get((provider.id, model))
+            ),
             max_steps=budget.max_steps,
             memory_prompt=lambda: profile_prompt(memory),
             max_total_tokens=budget.max_tokens,
@@ -1389,7 +1410,7 @@ def create_app(
         )
 
     async def run_scheduled(job, approver) -> RunResult:
-        """One unattended run of a scheduled job, in a conversation of its own that the user can open later."""
+        """One unattended run of a scheduled job, in a conversation the user can open later."""
         provider = get_provider(job.provider)
         if run_settings.get().local_only and not provider.local:
             return RunResult(None, "error", error="Local-only mode is on and this job uses a cloud model.")
@@ -1469,7 +1490,8 @@ def create_app(
     @app.post("/api/scheduler/jobs/{job_id}/run", dependencies=auth, status_code=202)
     async def run_job_now(job_id: str) -> dict:
         job_or_404(job_id)
-        asyncio.get_running_loop().create_task(scheduler.run_now(job_id))  # the result arrives as a notification
+        # The result arrives as a notification.
+        asyncio.get_running_loop().create_task(scheduler.run_now(job_id))
         return {"started": True}
 
     @app.get("/api/scheduler/pending", dependencies=auth)
@@ -1482,7 +1504,10 @@ def create_app(
             raise HTTPException(status_code=404, detail="unknown decision")
         try:
             scheduler.store.get_pending(pending_id)
-            item = await scheduler.approve(pending_id) if decision == "approve" else scheduler.decline(pending_id)
+            if decision == "approve":
+                item = await scheduler.approve(pending_id)
+            else:
+                item = scheduler.decline(pending_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="unknown request") from None
         except ValueError as e:

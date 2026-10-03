@@ -23,7 +23,11 @@ def schedule_tools(scheduler: Scheduler) -> list[Tool]:
             raise ValueError("Scheduling is not available in this run.")
         try:
             job = scheduler.create(
-                str(args.get("title") or ""), str(args.get("prompt") or ""), args.get("when"), ctx.provider_id, ctx.model
+                str(args.get("title") or ""),
+                str(args.get("prompt") or ""),
+                args.get("when"),
+                ctx.provider_id,
+                ctx.model,
             )
         except RuleError as e:
             raise ValueError(str(e)) from None
@@ -34,7 +38,9 @@ def schedule_tools(scheduler: Scheduler) -> list[Tool]:
         if not jobs:
             return "Nothing is scheduled."
         return "\n".join(
-            f"[{j.id}] {j.title}: {describe(j.rule)}" + ("" if j.enabled else " (off)") + f" | next: {j.next_run or 'none'}"
+            f"[{j.id}] {j.title}: {describe(j.rule)}"
+            + ("" if j.enabled else " (off)")
+            + f" | next: {j.next_run or 'none'}"
             for j in jobs
         )
 
@@ -64,10 +70,10 @@ def schedule_tools(scheduler: Scheduler) -> list[Tool]:
         Tool(
             name="schedule.create",
             description=(
-                "Set up a reminder or a routine that Piyo runs later on its own, for example 'every morning at 8, "
-                "give me my brief'. The prompt is what you will be asked to do at that time, written as if the user "
-                "said it. The user approves each schedule. Scheduled runs cannot send or change anything without the "
-                "user approving afterwards."
+                "Set up a reminder or a routine that Piyo runs later on its own, for example "
+                "'every morning at 8, give me my brief'. The prompt is what you will be asked to do at "
+                "that time, written as if the user said it. The user approves each schedule. Scheduled "
+                "runs cannot send or change anything without the user approving afterwards."
             ),
             parameters={
                 "type": "object",

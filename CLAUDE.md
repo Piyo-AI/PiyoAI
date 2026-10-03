@@ -26,6 +26,8 @@ npm run tauri:dev      # full Tauri shell (needs Rust + platform deps); it start
 `python scripts/check.py` (repo root) runs everything CI runs: ruff, pytest, typecheck, build. CI is
 `.github/workflows/ci.yml` (Windows, macOS, Linux).
 
+Deno tests (`tests/test_script_runner.py`) run when `deno` is on PATH or `PIYO_DENO` points at it; otherwise they skip. Ruff 0.16.9 runs fine here: run it before pushing, CI fails on E501 and import order.
+
 Lint: `uv run ruff check piyo tests` (line length 110, rules E F I B UP). Check `CLAUDE.local.md` if it fails to run.
 Ruff 0.16.10 crashes on Windows (access violation); `pyproject.toml` excludes it. Do not remove that exclusion
 until a newer release is confirmed to run.

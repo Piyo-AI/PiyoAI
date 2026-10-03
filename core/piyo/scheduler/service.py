@@ -99,8 +99,9 @@ class Scheduler:
             item = self.store.add_pending(job, request.tool, request.arguments, request.summary)
             held.append(item)
             raise ApprovalDeferred(
-                "This is a scheduled run and the user is not here to approve. The action was NOT done; it was added "
-                "to the user's pending approvals. Say that it is waiting for their approval and do not try again."
+                "This is a scheduled run and the user is not here to approve. The action was NOT done; "
+                "it was added to the user's pending approvals. Say that it is waiting for their "
+                "approval and do not try again."
             )
 
         return hold
@@ -119,18 +120,32 @@ class Scheduler:
                 self.store.set_pending(item.id, "pending", conversation_id=result.conversation_id)
             try:
                 self.store.update_job(
-                    job.id, last_run=self._clock().isoformat(timespec="seconds"), last_status=status,
+                    job.id,
+                    last_run=self._clock().isoformat(timespec="seconds"),
+                    last_status=status,
                     last_conversation_id=result.conversation_id,
                 )
             except KeyError:
                 return  # deleted while it ran
             if result.error:
-                self.store.add_event("failed", f"{job.title} could not run", result.error, job.id, result.conversation_id)
+                self.store.add_event(
+                    "failed", f"{job.title} could not run", result.error, job.id, result.conversation_id
+                )
             else:
-                self.store.add_event("finished", f"{job.title} is done", result.text or "Finished.", job.id, result.conversation_id)
+                self.store.add_event(
+                    "finished",
+                    f"{job.title} is done",
+                    result.text or "Finished.",
+                    job.id,
+                    result.conversation_id,
+                )
             for item in held:
                 self.store.add_event(
-                    "approval", f"{job.title} needs your approval", item.summary, job.id, result.conversation_id
+                    "approval",
+                    f"{job.title} needs your approval",
+                    item.summary,
+                    job.id,
+                    result.conversation_id,
                 )
 
     async def run_now(self, job_id: str) -> None:
@@ -150,7 +165,9 @@ class Scheduler:
             )
             if late > grace:
                 self.store.update_job(job.id, last_status="missed")
-                self.store.add_event("missed", f"{job.title} was missed", "Piyo was not running at the scheduled time.", job.id)
+                self.store.add_event(
+                    "missed", f"{job.title} was missed", "Piyo was not running at the scheduled time.", job.id
+                )
                 continue
             await self.fire(job)
 

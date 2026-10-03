@@ -27,7 +27,9 @@ def at(text, tz=UTC):
 def test_daily_weekdays_and_weekly_pick_the_next_local_time():
     now = at("2026-10-05T07:00", IST)  # a Monday, 07:00 in India
     assert next_run({"kind": "daily", "time": "08:00"}, now, IST) == at("2026-10-05T08:00", IST)
-    assert next_run({"kind": "daily", "time": "08:00"}, at("2026-10-05T08:00", IST), IST) == at("2026-10-06T08:00", IST)
+    assert next_run({"kind": "daily", "time": "08:00"}, at("2026-10-05T08:00", IST), IST) == at(
+        "2026-10-06T08:00", IST
+    )
     friday_evening = at("2026-10-09T18:00", IST)
     assert next_run({"kind": "weekdays", "time": "08:00"}, friday_evening, IST) == at("2026-10-12T08:00", IST)
     weekly = {"kind": "weekly", "days": [2, 6], "time": "09:30"}  # Wednesday and Sunday
@@ -74,7 +76,10 @@ def test_bad_rules_have_readable_messages(rule, message):
 
 def test_rules_are_described_in_words():
     assert describe(parse_rule({"kind": "weekdays", "time": "8:00"})) == "Weekdays at 08:00"
-    assert describe(parse_rule({"kind": "weekly", "days": [0, 4, 4], "time": "18:30"})) == "Every Monday, Friday at 18:30"
+    assert (
+        describe(parse_rule({"kind": "weekly", "days": [0, 4, 4], "time": "18:30"}))
+        == "Every Monday, Friday at 18:30"
+    )
     assert describe(parse_rule({"kind": "every", "minutes": 120})) == "Every 2 hour(s)"
 
 
@@ -134,7 +139,9 @@ async def test_a_due_job_runs_once_and_moves_forward(parts):
 
 async def test_a_one_time_reminder_runs_then_finishes(parts):
     scheduler, store, clock, runs, _, _ = parts
-    job = scheduler.create("Call mum", "Remind me to call mum", {"kind": "once", "at": "2026-10-05T09:00"}, "ollama", "m")
+    job = scheduler.create(
+        "Call mum", "Remind me to call mum", {"kind": "once", "at": "2026-10-05T09:00"}, "ollama", "m"
+    )
     clock.now = at("2026-10-05T09:01", IST)
     await scheduler.tick()
     saved = store.get_job(job.id)
@@ -190,7 +197,9 @@ async def test_actions_needing_approval_are_held_then_run_only_when_approved(par
     assert {e.kind for e in store.list_events()} == {"finished", "approval"}
 
     done = await scheduler.approve(item.id)
-    assert executed == [("mail.send", {"to": "a@b.c"})] and done.status == "approved" and done.result == "sent"
+    assert (
+        executed == [("mail.send", {"to": "a@b.c"})] and done.status == "approved" and done.result == "sent"
+    )
     with pytest.raises(ValueError, match="already handled"):
         await scheduler.approve(item.id)
 
@@ -262,7 +271,9 @@ async def test_schedule_tools_need_approval_to_create_but_not_to_list(parts):
     )
     assert "Scheduled [" in out and "Every day at 08:00" in out
     assert "Brief: Every day at 08:00" in await listing.handler({}, ctx)
-    assert "Every day at 08:00" in create.summary_of({"title": "Brief", "prompt": "p", "when": {"kind": "daily", "time": "08:00"}})
+    assert "Every day at 08:00" in create.summary_of(
+        {"title": "Brief", "prompt": "p", "when": {"kind": "daily", "time": "08:00"}}
+    )
     with pytest.raises(ValueError, match="HH:MM"):
         await create.handler({"title": "x", "prompt": "y", "when": {"kind": "daily", "time": "morning"}}, ctx)
     with pytest.raises(ValueError, match="not available"):
@@ -278,7 +289,9 @@ async def test_schedule_tools_need_approval_to_create_but_not_to_list(parts):
 def make_client(tmp_path, turn_fn):
     skills = SkillRegistry(builtin_dir=tmp_path / "a", user_dir=tmp_path / "b")
     store = SchedulerStore(tmp_path / "api.db")
-    app = server.create_app(TOKEN, skills=skills, turn_fn=turn_fn, scheduler_store=store, start_scheduler=False)
+    app = server.create_app(
+        TOKEN, skills=skills, turn_fn=turn_fn, scheduler_store=store, start_scheduler=False
+    )
     sent = []
 
     async def send(args, ctx):
@@ -286,19 +299,39 @@ def make_client(tmp_path, turn_fn):
         return "sent"
 
     app.state.tools.register(
-        Tool("mail.send", "Send mail", send, risk=Risk.CONFIRM, core=True, summarize=lambda a: f"Send mail to {a['to']}")
+        Tool(
+            "mail.send",
+            "Send mail",
+            send,
+            risk=Risk.CONFIRM,
+            core=True,
+            summarize=lambda a: f"Send mail to {a['to']}",
+        )
     )
     return TestClient(app), sent
 
 
 def test_api_job_lifecycle_and_validation(tmp_path):
     client, _ = make_client(tmp_path, scripted())
-    body = {"title": "Brief", "prompt": "Give me my brief", "rule": {"kind": "daily", "time": "08:00"}, "provider": "ollama", "model": "m"}
+    body = {
+        "title": "Brief",
+        "prompt": "Give me my brief",
+        "rule": {"kind": "daily", "time": "08:00"},
+        "provider": "ollama",
+        "model": "m",
+    }
     made = client.post("/api/scheduler/jobs", json=body, headers=AUTH)
     assert made.status_code == 201 and made.json()["when"] == "Every day at 08:00" and made.json()["next_run"]
     jid = made.json()["id"]
-    assert client.post("/api/scheduler/jobs", json={**body, "rule": {"kind": "every", "minutes": 1}}, headers=AUTH).status_code == 400
-    assert client.post("/api/scheduler/jobs", json={**body, "provider": "nope"}, headers=AUTH).status_code == 404
+    assert (
+        client.post(
+            "/api/scheduler/jobs", json={**body, "rule": {"kind": "every", "minutes": 1}}, headers=AUTH
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post("/api/scheduler/jobs", json={**body, "provider": "nope"}, headers=AUTH).status_code == 404
+    )
     off = client.put(f"/api/scheduler/jobs/{jid}", json={"enabled": False}, headers=AUTH).json()
     assert off["enabled"] is False and off["next_run"] is None
     assert client.put("/api/scheduler/jobs/nope", json={}, headers=AUTH).status_code == 404
@@ -313,7 +346,13 @@ def test_a_scheduled_run_holds_a_send_until_the_user_approves(tmp_path):
         [TextDelta("Waiting for approval."), TurnDone(text="Waiting for approval.")],
     )
     client, sent = make_client(tmp_path, turn)
-    body = {"title": "Mail", "prompt": "Send the report to a@b.c", "rule": {"kind": "daily", "time": "08:00"}, "provider": "ollama", "model": "m"}
+    body = {
+        "title": "Mail",
+        "prompt": "Send the report to a@b.c",
+        "rule": {"kind": "daily", "time": "08:00"},
+        "provider": "ollama",
+        "model": "m",
+    }
     jid = client.post("/api/scheduler/jobs", json=body, headers=AUTH).json()["id"]
 
     with client:  # one event loop, so the background run can finish
