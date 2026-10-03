@@ -213,6 +213,16 @@ Goal: Piyo controlling a screen must not be able to damage the user's real machi
 
 ## 9. Repository Layout
 
+### Local workspace
+Two separate git repos side by side in one workspace folder:
+```
+D:\Projects\PiyoAI\          # workspace folder (not a repo)
+  PiyoAI\                     # app repo → github.com/Piyo-AI/PiyoAI (everything below)
+  piyo-skills\                # catalog repo → github.com/Piyo-AI/piyo-skills
+```
+
+### App repo (`PiyoAI/`)
+
 ```
 PiyoAI/
   PLAN.md

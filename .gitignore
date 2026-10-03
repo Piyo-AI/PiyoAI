@@ -25,5 +25,3 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Separate repo (Piyo-AI/piyo-skills), cloned here for convenience
-/piyo-skills/
