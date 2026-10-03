@@ -946,3 +946,36 @@ button.stop:disabled {
 .limits textarea {
   width: min(360px, 100%);
 }
+
+.pill.unverified {
+  background: transparent;
+  color: var(--danger, #b45309);
+  border-color: currentColor;
+}
+
+.skill-install {
+  margin: 12px 0;
+}
+
+.install-review {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.install-review h4 {
+  margin: 0 0 6px;
+}
+
+.permissions {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.install-actions {
+  display: flex;
+  gap: 8px;
+}

@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiStyle, FolderEntry, inTauri, pickFolder, Provider, RunSettings, SkillInfo } from "./api";
 import { BrowserSettings } from "./BrowserSettings";
 import { GoogleConnection } from "./GoogleConnection";
+import { SkillInstall } from "./SkillInstall";
 
 interface Props {
   providers: Provider[];
@@ -143,6 +144,17 @@ function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; ref
     }
   };
 
+  const uninstall = async (name: string) => {
+    if (!window.confirm(`Remove ${name}? Its files are deleted.`)) return;
+    setError(null);
+    try {
+      await api.uninstallSkill(name);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   const needs = (s: SkillInfo) => [
     s.model_needs.vision ? "a model that can read images" : "",
     s.model_needs.min_context ? `at least ${s.model_needs.min_context} tokens of context` : "",
@@ -157,6 +169,7 @@ function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; ref
       </p>
       {error && <p className="error">{error}</p>}
       <GoogleConnection onChange={load} />
+      <SkillInstall onChange={load} />
       {skills && skills.length === 0 && <p className="hint">No skills found.</p>}
       <ul className="providers">
         {skills?.map((s) => (
@@ -165,6 +178,7 @@ function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; ref
               <strong>
                 {s.name}
                 <sup className={`pill ${s.source}`}>{s.source === "builtin" ? "Built in" : "Yours"}</sup>
+                {s.removable && !s.verified && <sup className="pill unverified">Unverified</sup>}
               </strong>
               <span className="hint skill-version">v{s.version}{s.author ? ` · ${s.author}` : ""}</span>
               <label className="check" style={{ marginLeft: "auto" }}>
@@ -182,6 +196,14 @@ function Skills({ onSetup, refreshKey }: { onSetup: (skill: string) => void; ref
             ))}
             {s.secrets.length > 0 && <p className="hint">Needs secrets: {s.secrets.join(", ")}</p>}
             {needs(s).length > 0 && <p className="hint">Needs {needs(s).join(" and ")}.</p>}
+            {s.install_source && <p className="hint">Installed from {s.install_source}.</p>}
+            {s.removable && (
+              <p>
+                <button type="button" className="ghost" onClick={() => uninstall(s.name)}>
+                  Uninstall
+                </button>
+              </p>
+            )}
             {s.has_setup && (
               <p>
                 <button

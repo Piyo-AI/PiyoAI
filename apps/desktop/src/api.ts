@@ -230,6 +230,30 @@ export interface SkillInfo {
   model_needs: { vision?: boolean; min_context?: number };
   /** Why the model named in the request can't run this skill; empty when it can. */
   model_issues: string[];
+  /** Installed by the user, so it can be removed. */
+  removable: boolean;
+  /** Where an installed skill came from, e.g. "zip 3fa9c1d20b7e". */
+  install_source: string | null;
+  /** From the signed catalog. Installs from a file never are. */
+  verified: boolean;
+}
+
+/** What a skill zip contains and asks for, before anything is installed. */
+export interface InstallPreview {
+  token: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string | null;
+  source: string;
+  /** Labels like "tool:gmail.send", "integration:google", "secret:X", "script:run.py", "runtime:python". */
+  permissions: string[];
+  files: string[];
+  /** Set when this replaces an installed version. */
+  installed_version: string | null;
+  /** The permissions the user has to approve now (all of them for a fresh install). */
+  added: string[];
+  verified: boolean;
 }
 
 export interface FolderEntry {
@@ -334,6 +358,26 @@ export async function onCoreExit(handler: (message: string) => void): Promise<()
   return listen<string>("core-exited", (e) => handler(e.payload));
 }
 
+async function upload<T>(path: string, data: ArrayBuffer): Promise<T> {
+  const { port, token } = await getConnection();
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/octet-stream" },
+    body: data,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch {
+      /* keep statusText */
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as T;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const { port, token } = await getConnection();
   const res = await fetch(`http://127.0.0.1:${port}${path}`, {
@@ -422,6 +466,11 @@ export const api = {
     request<Vision>("GET", `/api/vision?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
   setVision: (provider: string, model: string, mode: Vision["mode"]) =>
     request<Vision>("PUT", "/api/vision", { provider, model, mode }),
+  previewSkillInstall: (zip: ArrayBuffer) => upload<InstallPreview>("/api/skills/install/preview", zip),
+  installSkill: (token: string, approved: string[]) =>
+    request<{ name: string; version: string }>("POST", "/api/skills/install", { token, approved }),
+  cancelSkillInstall: (token: string) => request<void>("DELETE", `/api/skills/install/${token}`),
+  uninstallSkill: (name: string) => request<void>("DELETE", `/api/skills/${encodeURIComponent(name)}`),
   setSkillEnabled: (name: string, enabled: boolean) => request<void>("PUT", `/api/skills/${encodeURIComponent(name)}`, { enabled }),
   audit: (limit: number, offset: number) =>
     request<AuditReport>("GET", `/api/audit?limit=${limit}&offset=${offset}`),

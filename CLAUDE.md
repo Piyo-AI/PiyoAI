@@ -50,7 +50,7 @@ report that packaging is not done), exposes `core_status` / `restart_core` and t
 
 Desktop (`apps/desktop/src/`): `App.tsx` (chat shell), `useChat.ts` (chat state + socket events), `api.ts`
 (HTTP/WS client), `Tools.tsx` (tool chips, approval card), `Settings.tsx` (settings window: left sidebar with Providers > Provider list / Add provider, Web search, Folders, Skills, Limits), `GoogleConnection.tsx` (client ID, access checkboxes, Connect/Disconnect), `SetupWizard.tsx` + `Markdown.tsx` (a skill's `SETUP.md` as a step-by-step wizard; `useSetupNeeded.ts` drives the chat banner).
-`useModelWarnings.ts` (pre-send banner: unusable skills, local-only), `ModelSettings.tsx` (the "Model settings" popover: per-model max reply, context size and tool mode), `Tasks.tsx` (task log; its Approvals tab is `Audit.tsx`).
+`SkillInstall.tsx` (Settings > Skills: pick a `.piyoskill`/zip, review card with the permissions to approve and the Unverified notice, install; each installed skill has Uninstall), `useModelWarnings.ts` (pre-send banner: unusable skills, local-only), `ModelSettings.tsx` (the "Model settings" popover: per-model max reply, context size and tool mode), `Tasks.tsx` (task log; its Approvals tab is `Audit.tsx`).
 Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 
 ## How the pieces fit
