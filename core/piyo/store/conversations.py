@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import uuid
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from piyo.config import data_dir
@@ -95,8 +96,23 @@ class Conversation(ConversationSummary):
     active_skills: list[str]
 
 
+_last_now = datetime.min.replace(tzinfo=UTC)
+_now_lock = threading.Lock()
+
+
 def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds")
+    """Current time to the millisecond, never equal to or before the previous call.
+
+    Lists sort by this, so two changes in the same millisecond must not tie.
+    """
+    global _last_now
+    with _now_lock:
+        t = datetime.now(UTC)
+        t = t.replace(microsecond=t.microsecond // 1000 * 1000)
+        if t <= _last_now:
+            t = _last_now + timedelta(milliseconds=1)
+        _last_now = t
+    return t.isoformat(timespec="milliseconds")
 
 
 def title_from(text: str) -> str:

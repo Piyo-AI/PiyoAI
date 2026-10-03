@@ -126,3 +126,21 @@ def test_complete_tool_calls_fills_gaps_only():
     assert complete_tool_calls(fixed) == fixed
     plain = [user("hi"), Message(role="assistant", content="hello")]
     assert complete_tool_calls(plain) == plain
+
+
+def test_timestamps_never_tie_even_within_one_millisecond(monkeypatch):
+    from datetime import UTC, datetime
+
+    from piyo.store import conversations
+
+    frozen = datetime(2030, 1, 1, tzinfo=UTC)
+
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(conversations, "datetime", Frozen)
+    monkeypatch.setattr(conversations, "_last_now", conversations._last_now)  # restored afterwards
+    stamps = [conversations._now() for _ in range(3)]
+    assert stamps == sorted(set(stamps))
