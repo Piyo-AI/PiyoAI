@@ -409,3 +409,12 @@ button.stop:disabled {
     display: none;
   }
 }
+
+input.limit {
+  width: 84px;
+  margin-left: 6px;
+}
+
+input.limit[aria-invalid="true"] {
+  border-color: var(--error);
+}

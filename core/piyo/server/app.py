@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
 from piyo.config.folders import ApprovedFolders, FolderGrant
+from piyo.config.model_limits import ModelLimits
 from piyo.models import (
     MissingApiKey,
     ModelInfo,
@@ -70,6 +71,18 @@ class SearchOut(BaseModel):
     docs_url: str = search_mod.DOCS_URL
 
 
+class OutputLimitIn(BaseModel):
+    provider: str
+    model: str
+    tokens: int | None = None  # None removes the custom setting
+
+
+class OutputLimitOut(BaseModel):
+    output_limit: int  # what will be sent as max_tokens
+    custom: bool  # set by the user
+    reported_max: int | None  # the model's own maximum, when the provider tells us
+
+
 class FoldersIn(BaseModel):
     folders: list[FolderEntry]
 
@@ -122,6 +135,9 @@ def create_app(
     registry = registry or ProviderRegistry()
     skills = skills or SkillRegistry()
     store = store or ConversationStore()
+    limits = ModelLimits()
+    # Output maximums providers reported in model lists the app has loaded.
+    reported: dict[tuple[str, str], int] = {}
     folders = ApprovedFolders()
     tools = ToolRegistry(core_tools() + file_tools(folders) + web_tools() + search_tools())
     app = FastAPI(title="Piyo Core", version=__version__)
@@ -216,11 +232,45 @@ def create_app(
     async def models(provider_id: str) -> list[ModelInfo]:
         provider = get_provider(provider_id)
         try:
-            return await list_models(provider)
+            found = await list_models(provider)
+            for m in found:
+                if m.max_output:
+                    reported[(provider.id, m.id)] = m.max_output
+            return found
         except MissingApiKey as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
         except Exception as e:  # network / auth errors from the provider
             raise HTTPException(status_code=502, detail=describe_error(provider, e)) from None
+
+    def output_limit_info(provider_id: str, model: str) -> OutputLimitOut:
+        cap = reported.get((provider_id, model))
+        return OutputLimitOut(
+            output_limit=limits.resolve(provider_id, model, cap),
+            custom=limits.get(provider_id, model) is not None,
+            reported_max=cap,
+        )
+
+    @app.get("/api/output-limit", dependencies=auth)
+    def get_output_limit(provider: str, model: str) -> OutputLimitOut:
+        get_provider(provider)
+        return output_limit_info(provider, model)
+
+    @app.put("/api/output-limit", dependencies=auth)
+    def set_output_limit(body: OutputLimitIn) -> OutputLimitOut:
+        get_provider(body.provider)
+        model = body.model.strip()
+        if not model:
+            raise HTTPException(status_code=400, detail="Pick a model first.")
+        cap = reported.get((body.provider, model))
+        if body.tokens is not None and cap and body.tokens > cap:
+            raise HTTPException(
+                status_code=400, detail=f"{model} can produce at most {cap} tokens per reply."
+            )
+        try:
+            limits.set(body.provider, model, body.tokens)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return output_limit_info(body.provider, model)
 
     @app.get("/api/skills", dependencies=auth)
     def list_skills() -> SkillsOut:
@@ -296,7 +346,15 @@ def create_app(
 
         async def run_conversation(req: ChatRequest, provider: Provider) -> None:
             agent = Agent(
-                provider, req.model, tools, skills, PermissionGate(approver), turn_fn=turn_fn
+                provider,
+                req.model,
+                tools,
+                skills,
+                PermissionGate(approver),
+                max_tokens=limits.resolve(
+                    provider.id, req.model, reported.get((provider.id, req.model))
+                ),
+                turn_fn=turn_fn,
             )
             if req.conversation_id:
                 try:

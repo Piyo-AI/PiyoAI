@@ -25,7 +25,7 @@ export interface Approval {
 
 const NOTES: Partial<Record<string, string>> = {
   step_limit: "Stopped: reached the step limit for one request.",
-  truncated: "The reply was cut off by the output limit.",
+  truncated: "The reply was cut off by the reply-length limit. You can raise Max reply next to the model.",
   cancelled: "Stopped.",
 };
 

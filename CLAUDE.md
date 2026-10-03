@@ -31,7 +31,7 @@ until a newer release is confirmed to run.
 
 | Package | Responsibility |
 |---|---|
-| `config/` | Per-user data dirs (`PIYO_DATA_DIR` overrides), keychain secrets |
+| `config/` | Per-user data dirs (`PIYO_DATA_DIR` overrides), keychain secrets, approved folders, per-model output limits (`model_limits.py`) |
 | `models/` | Providers as data (`providers.py`); model clients, model lists (`clients.py`); one tool-calling turn normalised across both wire formats (`turn.py`) |
 | `agent/` | The loop (`loop.py`): model turn, tool calls, results, repeat; system prompt (`prompts.py`) |
 | `tools/` | `Tool`, `Risk`, `ToolRegistry`, `RunContext`; core tools `load_skill`, `current_time` |
@@ -59,6 +59,9 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 - **Skills use progressive loading.** The prompt carries each enabled skill's name and description only; the
   model calls `load_skill` for the full body. Loading a skill unlocks exactly the tools in its
   `requires.tools`. Everything else is hidden from the model and rejected if called.
+- **Output limit** (`max_tokens` per model turn) is per model: the user's setting (`/api/output-limit`), else the
+  maximum the provider reported (only OpenRouter does; cached from the model list the app loads, capped at
+  16384), else 4096, which every provider accepts. A custom value is clamped to a known maximum.
 - Tool names use dots internally (`gmail.read`); the wire name is `gmail__read` (providers reject dots).
 
 ## Invariants (do not break; add a test when touching them)

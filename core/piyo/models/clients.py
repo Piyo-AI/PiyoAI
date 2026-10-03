@@ -29,6 +29,8 @@ class ModelInfo(BaseModel):
     # None means the provider doesn't report it (most don't).
     free: bool | None = None
     context_length: int | None = None
+    # Largest reply the model can produce, when the provider says so.
+    max_output: int | None = None
     tools: bool | None = None
 
 
@@ -50,11 +52,13 @@ def parse_openrouter_models(payload: dict) -> list[ModelInfo]:
                 _is_zero(pricing.get("prompt")) and _is_zero(pricing.get("completion"))
             )
         params = m.get("supported_parameters")
+        cap = (m.get("top_provider") or {}).get("max_completion_tokens")
         models.append(
             ModelInfo(
                 id=m["id"],
                 free=free,
                 context_length=m.get("context_length"),
+                max_output=cap if isinstance(cap, int) and cap > 0 else None,
                 tools=None if params is None else "tools" in params,
             )
         )

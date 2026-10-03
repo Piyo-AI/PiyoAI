@@ -21,7 +21,17 @@ export interface ModelInfo {
   /** null when the provider doesn't report pricing (most don't). */
   free: boolean | null;
   context_length: number | null;
+  max_output: number | null;
   tools: boolean | null;
+}
+
+export interface OutputLimit {
+  /** What is sent as the reply length cap. */
+  output_limit: number;
+  /** True when the user set it; otherwise it is the automatic value. */
+  custom: boolean;
+  /** The model's own maximum, when the provider reports it. */
+  reported_max: number | null;
 }
 
 export interface NewProvider {
@@ -137,6 +147,10 @@ export const api = {
   searchStatus: () => request<{ provider: string; has_key: boolean; docs_url: string }>("GET", "/api/search"),
   setSearchKey: (key: string) => request<void>("PUT", "/api/search/key", { key }),
   deleteSearchKey: () => request<void>("DELETE", "/api/search/key"),
+  outputLimit: (provider: string, model: string) =>
+    request<OutputLimit>("GET", `/api/output-limit?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`),
+  setOutputLimit: (provider: string, model: string, tokens: number | null) =>
+    request<OutputLimit>("PUT", "/api/output-limit", { provider, model, tokens }),
   conversations: () => request<ConversationInfo[]>("GET", "/api/conversations"),
   conversation: (id: string) => request<ConversationDetail>("GET", `/api/conversations/${id}`),
   renameConversation: (id: string, title: string) =>
