@@ -201,10 +201,28 @@ interface Connection {
   token: string;
 }
 
-// In development the core is started by hand with a fixed port and token:
+type CoreStatus =
+  | { state: "starting" }
+  | { state: "ready"; port: number; token: string }
+  | { state: "failed"; error: string };
+
+export const inTauri = () => "__TAURI_INTERNALS__" in window;
+
+// Inside the Tauri app the shell starts the core and hands us its random port and token.
+// In a plain browser (`npm run dev`) the core is started by hand with a fixed port and token:
 //   PIYO_PORT=8765 PIYO_TOKEN=dev-token uv run piyo-core
-// The Tauri shell will later start the core itself and supply a random port and token.
 async function resolveConnection(): Promise<Connection> {
+  if (inTauri()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const deadline = Date.now() + 120_000; // the first start may sync Python dependencies
+    for (;;) {
+      const status = await invoke<CoreStatus>("core_status");
+      if (status.state === "ready") return { port: status.port, token: status.token };
+      if (status.state === "failed") throw new Error(status.error);
+      if (Date.now() > deadline) throw new Error("The Piyo core is taking too long to start.");
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
   if (import.meta.env.DEV) {
     return {
       port: Number(import.meta.env.VITE_PIYO_PORT ?? 8765),
@@ -215,7 +233,31 @@ async function resolveConnection(): Promise<Connection> {
 }
 
 let connection: Promise<Connection> | null = null;
-const getConnection = () => (connection ??= resolveConnection());
+const getConnection = () => {
+  connection ??= resolveConnection();
+  // A failed attempt must not be cached, or Retry could never succeed.
+  connection.catch(() => (connection = null));
+  return connection;
+};
+
+/** Forget the connection (the core moved or died); the next request asks again. */
+export function resetConnection() {
+  connection = null;
+}
+
+/** Tauri only: tell the shell to start a fresh core, then forget the old connection. */
+export async function restartCore() {
+  const { invoke } = await import("@tauri-apps/api/core");
+  resetConnection();
+  await invoke("restart_core");
+}
+
+/** Tauri only: called when the shell reports the core exited on its own. Returns an unsubscribe. */
+export async function onCoreExit(handler: (message: string) => void): Promise<() => void> {
+  if (!inTauri()) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<string>("core-exited", (e) => handler(e.payload));
+}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const { port, token } = await getConnection();

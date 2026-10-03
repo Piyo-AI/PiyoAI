@@ -13,7 +13,6 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from piyo.config import data_dir
 from piyo.store.conversations import ConversationStore
 from piyo.store.runs import redact
 

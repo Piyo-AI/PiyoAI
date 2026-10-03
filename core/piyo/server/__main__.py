@@ -10,6 +10,7 @@ import os
 import secrets
 import socket
 import sys
+import threading
 
 import uvicorn
 from dotenv import find_dotenv, load_dotenv
@@ -23,12 +24,28 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _exit_when_stdin_closes() -> None:
+    """The desktop app holds our stdin open; when it goes away (even if killed), so do we."""
+
+    def watch() -> None:
+        try:
+            while sys.stdin.read(1024):
+                pass
+        except (OSError, ValueError):
+            pass
+        os._exit(0)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
 def main() -> None:
     load_dotenv(find_dotenv(usecwd=True))
     port = int(os.environ.get("PIYO_PORT") or _free_port())
     token = os.environ.get("PIYO_TOKEN") or secrets.token_urlsafe(32)
     print(json.dumps({"port": port, "token": token}), flush=True)
     sys.stdout.flush()
+    if os.environ.get("PIYO_EXIT_ON_STDIN_EOF"):
+        _exit_when_stdin_closes()
     uvicorn.run(create_app(token), host="127.0.0.1", port=port, log_level="warning")
 
 

@@ -1,0 +1,32 @@
+name: Ollama smoke test
+
+# Optional: keeps the local-model path from rotting. Not part of PR checks (it downloads a model).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"
+
+jobs:
+  ollama:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PIYO_OLLAMA_MODEL: qwen2.5:0.5b
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: core/uv.lock
+      - run: uv sync --locked
+      - name: Install Ollama and pull a tiny model
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          (ollama serve > /tmp/ollama.log 2>&1 &)
+          for i in $(seq 1 30); do curl -sf http://localhost:11434/api/tags && break; sleep 2; done
+          ollama pull "$PIYO_OLLAMA_MODEL"
+      - run: uv run pytest -q tests/test_ollama_smoke.py

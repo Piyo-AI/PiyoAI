@@ -1,20 +1,18 @@
 import time
 
 from fastapi.testclient import TestClient
+from test_agent import PROVIDER, Script, call
+from test_server import AUTH, TOKEN, chat_request, scripted
 
 from piyo.agent import Agent, Finished, ToolFinished
-from piyo.models import Provider, parse_openrouter_models
+from piyo.models import parse_openrouter_models
 from piyo.models.capabilities import ModelCaps, model_issues
-from piyo.models.providers import ApiStyle
 from piyo.models.turn import Message, ToolCall, TurnDone
 from piyo.safety import PermissionGate
 from piyo.server import app as server
 from piyo.skills import SkillRegistry
 from piyo.skills.manifest import ModelNeeds
 from piyo.tools import Risk, Tool, ToolRegistry, core_tools
-
-from test_agent import PROVIDER, Script, call
-from test_server import AUTH, TOKEN, chat_request, scripted
 
 SEER = """---
 name: seer
@@ -216,3 +214,39 @@ def test_vision_api_changes_what_skills_report(tmp_path):
     client.put("/api/vision", json={**q, "mode": "yes"}, headers=AUTH)
     assert issues() == []
     assert client.put("/api/vision", json={**q, "mode": "x"}, headers=AUTH).status_code == 400
+
+
+def test_model_capabilities_combines_reports_and_overrides(monkeypatch):
+    from piyo.models.clients import ModelInfo
+
+    async def fake_list(provider):
+        return [
+            ModelInfo(id="m", tools=False, vision=True, context_length=64_000, max_output=8192),
+            ModelInfo(id="plain"),
+        ]
+
+    monkeypatch.setattr(server, "list_models", fake_list)
+    client = TestClient(server.create_app(TOKEN))
+    assert client.get("/api/providers/ollama/models", headers=AUTH).status_code == 200
+    url = "/api/model-capabilities"
+
+    caps = client.get(url, params={"provider": "ollama", "model": "m"}, headers=AUTH).json()
+    assert caps["tools_reported"] is False and caps["tools"]["effective"] == "prompt"
+    assert caps["vision"]["effective"] is True and caps["vision"]["reported"] is True
+    assert caps["context"]["context_limit"] == 64_000 and caps["context"]["custom"] is False
+    assert caps["output"]["output_limit"] == 8192
+
+    # Nothing reported: unknown stays unknown, defaults apply.
+    unknown = client.get(url, params={"provider": "ollama", "model": "plain"}, headers=AUTH).json()
+    assert unknown["tools_reported"] is None and unknown["tools"]["effective"] == "native"
+    assert unknown["vision"]["effective"] is None and unknown["context"]["reported"] is None
+
+    # Your setting beats the provider's report, and shows up here.
+    q = {"provider": "ollama", "model": "m"}
+    client.put("/api/vision", json={**q, "mode": "no"}, headers=AUTH)
+    client.put("/api/tool-mode", json={**q, "mode": "native"}, headers=AUTH)
+    changed = client.get(url, params=q, headers=AUTH).json()
+    assert changed["vision"]["effective"] is False and changed["tools"]["effective"] == "native"
+
+    assert client.get(url, params=q).status_code == 401
+    assert client.get(url, params={"provider": "nope", "model": "m"}, headers=AUTH).status_code == 404

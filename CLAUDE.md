@@ -20,10 +20,13 @@ Desktop app (from `apps/desktop/`, npm):
 npm run dev            # Vite dev server on :1420, talks to the core on 127.0.0.1:8765 with token "dev-token"
 npm run typecheck      # tsc --noEmit
 npm run build          # typecheck + vite build
-npm run tauri:dev      # full Tauri shell (needs Rust + platform deps)
+npm run tauri:dev      # full Tauri shell (needs Rust + platform deps); it starts the core itself
 ```
 
-Lint: `uv run ruff check piyo tests` (line length 100, rules E F I B UP). Check `CLAUDE.local.md` if it fails to run.
+`python scripts/check.py` (repo root) runs everything CI runs: ruff, pytest, typecheck, build. CI is
+`.github/workflows/ci.yml` (Windows, macOS, Linux).
+
+Lint: `uv run ruff check piyo tests` (line length 110, rules E F I B UP). Check `CLAUDE.local.md` if it fails to run.
 Ruff 0.16.10 crashes on Windows (access violation); `pyproject.toml` excludes it. Do not remove that exclusion
 until a newer release is confirmed to run.
 
@@ -38,7 +41,11 @@ until a newer release is confirmed to run.
 | `safety/` | `PermissionGate`: every tool call is authorised here before it runs; `untrusted.py` fences outside text |
 | `skills/` | `SKILL.md` parsing/validation (`manifest.py`) and discovery (`registry.py`) |
 | `store/` | `ConversationStore`: conversations, messages (tool calls included) and loaded skills in SQLite; `runs.py`: the task log (`RunLog`, `RunStore`, `redact`) |
-| `server/` | FastAPI + WebSocket API for the app (`app.py`), launcher (`__main__.py`) |
+| `server/` | FastAPI + WebSocket API for the app (`app.py`), launcher (`__main__.py`; exits when stdin closes if `PIYO_EXIT_ON_STDIN_EOF` is set) |
+
+Tauri shell (`apps/desktop/src-tauri/src/core.rs`): runs the core as a child (`uv run piyo-core` in dev; release builds
+report that packaging is not done), exposes `core_status` / `restart_core` and the `core-exited` event;
+`api.ts` `resolveConnection` polls it. Debug builds only.
 
 Desktop (`apps/desktop/src/`): `App.tsx` (chat shell), `useChat.ts` (chat state + socket events), `api.ts`
 (HTTP/WS client), `Tools.tsx` (tool chips, approval card), `Settings.tsx` (settings window: left sidebar with Providers > Provider list / Add provider, Web search, Folders, Skills, Limits).
@@ -91,6 +98,9 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 - **Cost** (`config/model_prices.py`): `RunLog.price` (USD per million tokens, input/output) is resolved per run:
   the user's setting (`/api/price`), else the provider-reported price (OpenRouter), local providers are free, else
   None. `RunLog.cost_usd` is saved in `runs.cost_usd` (schema v3, NULL = unknown).
+- **Model capabilities in one place:** `GET /api/model-capabilities?provider&model` composes tool mode, vision, context and
+  output limits, each with what the provider reported and what the user set. Reports are cached in memory when the app loads
+  a model list. `tests/test_ollama_smoke.py` runs only with `PIYO_OLLAMA_MODEL` set (weekly CI job `ollama-smoke.yml`).
 - Tool names use dots internally (`gmail.read`); the wire name is `gmail__read` (providers reject dots).
 
 ## Invariants (do not break; add a test when touching them)
@@ -120,5 +130,5 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 
 Working: chat with streaming, providers/keys/model lists, agent loop with tool calling, permission gate with
 approval UI, stop/cancel, skill loading and per-skill tool grants, example skills `plan-my-day` and `downloads-organizer`.
-File tools (`files.*`, approved folders only; API `/api/folders`, Settings section to manage them, with a per-folder "no prompts for changes" switch). `web.fetch` (public hosts only, output fenced as untrusted; skill `web-reader`). `web.search` (Brave; key in keychain, `/api/search`; skill `web-research`). Not yet: fallback for models without tool calling, sidecar launch in
-production builds, CI, task log, integrations. See `../docs/README.md` for the ordered plan.
+File tools (`files.*`, approved folders only; API `/api/folders`, Settings section to manage them, with a per-folder "no prompts for changes" switch). `web.fetch` (public hosts only, output fenced as untrusted; skill `web-reader`). `web.search` (Brave; key in keychain, `/api/search`; skill `web-research`). Sidecar launch in dev, CI and contributor docs are in place. Not yet: packaged core for release builds,
+integrations. See `../docs/README.md` for the ordered plan.

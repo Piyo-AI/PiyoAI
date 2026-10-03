@@ -253,7 +253,7 @@ User-installed and learned skills live in the per-user app data directory (e.g. 
 ## 10. Roadmap
 
 ### Phase 0 — Foundations
-- [ ] Monorepo setup (git, MIT `LICENSE`, `CONTRIBUTING.md`, Python env via `uv`, Node/pnpm, lint/test, CI matrix win/mac/linux)
+- [ ] Monorepo setup (git, MIT `LICENSE`, `CONTRIBUTING.md`, Python env via `uv`, Node/npm, lint/test, CI matrix win/mac/linux)
 - [ ] Piyo Core skeleton: FastAPI server, config, keyring secrets, per-OS app data dirs
 - [ ] Model router + provider registry with presets (Anthropic, OpenAI, OpenRouter, DeepSeek, Kimi, Gemini, Ollama, LM Studio) and "add custom provider"; Settings page for keys/models
 - [ ] Tauri app shell: chat window talking to core over WebSocket, streaming responses
@@ -340,6 +340,8 @@ _None blocking right now. Add new ones here._
 | 2026-10-03 | Web search: Brave Search API first (key in keychain, Settings section); `web.search` is `auto` and its results are fenced as untrusted. Other providers can be added behind the same tool | User chose Brave; simple JSON API with its own index |
 | 2026-10-03 | Conversations live in the core (SQLite, `piyo.db`); the app sends only the new message plus a conversation id, and an interrupted run is repaired so no tool call is left without a result | Tool results and loaded skills must survive between messages and restarts; one source of truth |
 | 2026-10-03 | Reply length cap is per model: user setting, else the provider-reported maximum (capped at 16384), else 4096. No built-in table of model limits | A value above a model's real maximum is rejected by some providers and model names change too often to hardcode; only OpenRouter reports limits |
+| 2026-10-03 | UI package manager is **npm** (`package-lock.json`), not pnpm: one less tool to install, and nothing here needs a workspace. Ruff line length is 110 | The repo already used npm; the code was written to ~110 columns and 100 only produced noise |
+| 2026-10-03 | The desktop shell starts the core as a child process (`src-tauri/src/core.rs`): it reads the `{port, token}` line, the webview polls `core_status`, a dead core shows a Restart banner, and the core exits when its stdin closes. In dev the child is `uv run piyo-core`; a release build shows an explanatory error until PyInstaller packaging (Phase 5) | Random port and token per launch with no manual steps; no orphaned core even if the app is killed |
 | 2026-10-03 | Min OS: Windows 10 22H2+, macOS 12+, Ubuntu 22.04+/Debian 12+/Fedora 39+ | Tauri 2 / WebView requirements, broad reach |
 
 ## 13. Backlog / Ideas

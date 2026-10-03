@@ -3,6 +3,8 @@ import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
+from test_agent import PROVIDER, Script, call
+from test_runs import AUTH, TOKEN, runs
 
 from piyo.agent import Agent, ToolFinished
 from piyo.agent.loop import MAX_IDENTICAL_FAILURES
@@ -14,9 +16,6 @@ from piyo.skills import SkillRegistry
 from piyo.store import AuditStore, ConversationStore
 from piyo.tools import Risk, Tool, ToolRegistry, core_tools
 from piyo.tools.files import file_tools
-
-from test_agent import PROVIDER, Script, call
-from test_runs import AUTH, TOKEN, runs
 
 
 def agent_with(tools, script, gate=None):
@@ -199,7 +198,9 @@ def test_audit_api_records_both_decisions_from_a_real_run():
             yield e
 
     app = server.create_app(TOKEN, turn_fn=turn_fn)
-    tool = Tool("mail.send", "Send", send, risk=Risk.CONFIRM, core=True, summarize=lambda a: f"Email {a['to']}")
+    tool = Tool(
+        "mail.send", "Send", send, risk=Risk.CONFIRM, core=True, summarize=lambda a: f"Email {a['to']}"
+    )
     app.state.tools.register(tool)
     client = TestClient(app)
     answers = iter([True, False])

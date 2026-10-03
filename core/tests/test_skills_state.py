@@ -1,12 +1,11 @@
 from fastapi.testclient import TestClient
+from test_agent import SKILL
+from test_runs import AUTH, TOKEN, chat, runs, scripted
 
 from piyo.config.skill_state import SkillState
 from piyo.models.turn import TurnDone
 from piyo.server import app as server
 from piyo.skills import SkillRegistry
-
-from test_agent import SKILL
-from test_runs import AUTH, TOKEN, chat, runs, scripted
 
 
 def make_skills(tmp_path):

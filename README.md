@@ -6,8 +6,9 @@ Piyo AI is an open-source desktop assistant. It talks to the model you choose (l
 browser and, later, your computer to get things done, and gets better over time by learning *skills* — reusable
 procedures you can install, write yourself, or let Piyo learn from a task it just completed.
 
-> **Status: early development (pre-alpha).** The desktop chat app, provider/model management and the local API
-> work today. The agent loop, skills, Gmail/Calendar/WhatsApp and browser automation are planned — see the
+> **Status: early development (pre-alpha).** The desktop chat app, provider/model management, the local API, the
+> agent loop with a permission gate, skills, file and web tools work today. Gmail/Calendar/WhatsApp and browser
+> automation are planned — see the
 > [roadmap](PLAN.md#10-roadmap).
 
 ## Goals
@@ -34,6 +35,9 @@ The full design, architecture, skill system, security model, roadmap and decisio
 - Live model lists from the provider. For **OpenRouter** there is a **"Free only"** filter, and each model shows
   its context size and whether it supports tools.
 - API keys stored in the OS keychain (Windows Credential Manager, macOS Keychain, Secret Service).
+- An agent that uses tools (files in folders you approve, web fetch and search) and **skills**, asking you before
+  anything risky, with a task log and approval audit.
+- The app starts the core itself and offers a Restart button if it stops (from source; installers come later).
 - A local, token-protected API (`127.0.0.1` only) between the app and the Python core, with readable errors
   (e.g. "Couldn't connect to Ollama … Is it running?").
 
@@ -72,9 +76,10 @@ You also need **one model source**: an API key (OpenRouter has free models) or a
 
 ## Quick start (development)
 
-You run two things: the Python **core** and the **desktop app**. Open two terminals.
+`npm run tauri:dev` (step 2) starts the core for you, so for the full app you can skip step 1. Starting the core by
+hand is only needed to work on the core alone or to use the UI in a browser (`npm run dev`).
 
-### 1. Start the core
+### 1. Start the core (optional)
 
 ```bash
 cd core
@@ -124,9 +129,11 @@ The app itself stores keys in the OS keychain, never in a file.
 ## Tests and checks
 
 ```bash
+python scripts/check.py   # everything below, same as CI
+
 cd core
 uv run pytest           # core tests
-uv run ruff check .     # lint
+uv run ruff check piyo tests   # lint
 
 cd ../apps/desktop
 npm run typecheck       # TypeScript
@@ -135,8 +142,9 @@ npm run build           # type-check + production UI build
 
 ## Troubleshooting
 
-- **"Can't reach the Piyo core"** in the app: the core isn't running, or it's on a different port/token than the
-  dev defaults (`8765` / `dev-token`). Start it as in step 1 and press *Retry*.
+- **"Can't reach the Piyo core"** in the desktop app: the banner shows why the core stopped (often `uv` is not on
+  your `PATH`); fix that and press *Restart*. In a browser (`npm run dev`) the core must be started by hand as in
+  step 1, on the dev defaults (`8765` / `dev-token`); press *Retry*.
 - **Port 1420 already in use**: another `npm run dev` / `tauri dev` is still running; stop it first.
 - **`cargo` not found** right after installing Rust: open a new terminal so your `PATH` updates.
 - **Low-end or unstable machine**: slow installs down so they use less CPU, disk and network at once, e.g.
@@ -145,7 +153,7 @@ npm run build           # type-check + production UI build
 ## Contributing
 
 Piyo AI is MIT-licensed and contributions are welcome. The project is young, so the best first step is to read
-[PLAN.md](PLAN.md) and open an issue to discuss what you'd like to work on. Skills for the catalog go in
+[CONTRIBUTING.md](CONTRIBUTING.md) and [PLAN.md](PLAN.md) and open an issue to discuss what you'd like to work on. Security problems: [SECURITY.md](SECURITY.md). Skills for the catalog go in
 [Piyo-AI/piyo-skills](https://github.com/Piyo-AI/piyo-skills).
 
 ## License

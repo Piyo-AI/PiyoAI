@@ -1,6 +1,6 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
-import { api, ModelInfo, Provider } from "./api";
+import { api, inTauri, ModelInfo, onCoreExit, Provider, resetConnection, restartCore } from "./api";
 import { ModelSettings } from "./ModelSettings";
 import { Settings } from "./Settings";
 import { useModelWarnings } from "./useModelWarnings";
@@ -67,6 +67,32 @@ export default function App() {
   useEffect(() => {
     loadProviders();
   }, [loadProviders]);
+
+  // The desktop shell reports a core that died on its own.
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let gone = false;
+    onCoreExit((message) => {
+      resetConnection();
+      setCoreError(message);
+    }).then((unlisten) => (gone ? unlisten() : (off = unlisten)));
+    return () => {
+      gone = true;
+      off?.();
+    };
+  }, []);
+
+  const retryCore = async () => {
+    if (inTauri()) {
+      try {
+        await restartCore();
+      } catch (e) {
+        setCoreError((e as Error).message);
+        return;
+      }
+    }
+    loadProviders();
+  };
 
   useEffect(() => {
     store.set("provider", providerId);
@@ -215,8 +241,8 @@ export default function App() {
         {coreError && (
           <div className="banner error">
             Can't reach the Piyo core: {coreError}{" "}
-            <button className="ghost" onClick={loadProviders}>
-              Retry
+            <button className="ghost" onClick={retryCore}>
+              {inTauri() ? "Restart" : "Retry"}
             </button>
           </div>
         )}

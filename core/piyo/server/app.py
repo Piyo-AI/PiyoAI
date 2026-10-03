@@ -13,12 +13,12 @@ from pydantic import BaseModel, ValidationError
 from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
 from piyo.config.folders import ApprovedFolders, FolderGrant
+from piyo.config.model_limits import ContextLimits, ModelLimits
+from piyo.config.model_prices import ModelPrices, Price
+from piyo.config.model_vision import ModelVision
+from piyo.config.run_settings import RunSettings
 from piyo.config.skill_state import SkillState
 from piyo.config.tool_modes import ToolModes
-from piyo.config.model_limits import ContextLimits, ModelLimits
-from piyo.config.model_vision import ModelVision
-from piyo.config.model_prices import ModelPrices, Price
-from piyo.config.run_settings import RunSettings
 from piyo.models import (
     MissingApiKey,
     ModelInfo,
@@ -131,6 +131,18 @@ class ToolModeOut(BaseModel):
     mode: str  # the user's choice
     effective: str  # what a run will use: native | prompt
     reason: str
+
+
+class ModelCapabilitiesOut(BaseModel):
+    """Everything Piyo knows about one model: what the provider reported, what you set, what a run uses."""
+
+    provider: str
+    model: str
+    tools: ToolModeOut
+    tools_reported: bool | None  # what the provider says about tool calling, when it says
+    vision: VisionOut
+    context: ContextLimitOut
+    output: OutputLimitOut
 
 
 class RunSettingsIn(BaseModel):
@@ -554,6 +566,19 @@ def create_app(
             mode=vision.get(provider_id, model),
             effective=vision.resolve(provider_id, model, reported),
             reported=reported,
+        )
+
+    @app.get("/api/model-capabilities", dependencies=auth)
+    def get_model_capabilities(provider: str, model: str) -> ModelCapabilitiesOut:
+        get_provider(provider)
+        return ModelCapabilitiesOut(
+            provider=provider,
+            model=model,
+            tools=tool_mode_info(provider, model),
+            tools_reported=reported_tools.get((provider, model)),
+            vision=vision_info(provider, model),
+            context=context_limit_info(provider, model),
+            output=output_limit_info(provider, model),
         )
 
     @app.get("/api/vision", dependencies=auth)

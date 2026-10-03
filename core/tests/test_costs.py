@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
+from test_runs import AUTH, TOKEN, chat, runs, scripted
 
 from piyo.config.model_prices import ModelPrices, Price
 from piyo.models import parse_openrouter_models
@@ -9,8 +10,6 @@ from piyo.models.turn import TurnDone
 from piyo.server import app as server
 from piyo.store import ConversationStore, RunLog, RunStore
 from piyo.store.conversations import RUNS_SCHEMA, SCHEMA
-
-from test_runs import AUTH, TOKEN, chat, runs, scripted
 
 
 def test_cost_is_tokens_times_price_per_million():
