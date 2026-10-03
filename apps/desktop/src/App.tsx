@@ -1,6 +1,6 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
-import { api, Provider } from "./api";
+import { api, ModelInfo, Provider } from "./api";
 import { Settings } from "./Settings";
 import { useChat } from "./useChat";
 
@@ -21,11 +21,20 @@ const store = {
   },
 };
 
+function describeModel(m: ModelInfo): string {
+  const parts: string[] = [];
+  if (m.free !== null) parts.push(m.free ? "free" : "paid");
+  if (m.context_length) parts.push(`${Math.round(m.context_length / 1000)}k context`);
+  if (m.tools !== null) parts.push(m.tools ? "tools" : "no tools");
+  return parts.join(" · ");
+}
+
 export default function App() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerId, setProviderId] = useState(store.get("provider"));
   const [model, setModel] = useState(store.get("model"));
-  const [models, setModels] = useState<string[]>([]);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [freeOnly, setFreeOnly] = useState(false);
   const [modelsNote, setModelsNote] = useState("");
   const [coreError, setCoreError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -60,13 +69,22 @@ export default function App() {
     store.set("model", model);
   }, [model]);
 
+  // "Free only" is remembered per provider.
+  useEffect(() => {
+    setFreeOnly(store.get(`freeOnly:${providerId}`) === "1");
+  }, [providerId]);
+  const toggleFreeOnly = (on: boolean) => {
+    setFreeOnly(on);
+    store.set(`freeOnly:${providerId}`, on ? "1" : "0");
+  };
+
   // Fetch the provider's live model list whenever the provider (or its key) changes.
   useEffect(() => {
     if (!provider) return;
     let cancelled = false;
     setModels([]);
     setModelsNote("");
-    if (!provider.has_key) {
+    if (!provider.has_key && !provider.public_models) {
       setModelsNote("Add an API key in Settings to load models.");
       return;
     }
@@ -77,7 +95,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [provider?.id, provider?.has_key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [provider?.id, provider?.has_key, provider?.public_models]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pre-fill the provider's default model when there is nothing sensible selected.
   useEffect(() => {
@@ -87,6 +105,10 @@ export default function App() {
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const hasPricing = models.some((m) => m.free !== null);
+  const shownModels = freeOnly ? models.filter((m) => m.free) : models;
+  const current = models.find((m) => m.id === model);
 
   const canSend = !!provider && !!model.trim() && !!input.trim() && !busy;
 
@@ -123,10 +145,21 @@ export default function App() {
             title={modelsNote}
           />
           <datalist id="models">
-            {models.map((m) => (
-              <option key={m} value={m} />
+            {shownModels.map((m) => (
+              <option key={m.id} value={m.id} label={describeModel(m)} />
             ))}
           </datalist>
+          {current?.free != null && (
+            <span className={`tag ${current.free ? "free" : "paid"}`} title={describeModel(current)}>
+              {current.free ? "free" : "paid"}
+            </span>
+          )}
+          {hasPricing && (
+            <label className="check" title="Only list models that cost nothing to use">
+              <input type="checkbox" checked={freeOnly} onChange={(e) => toggleFreeOnly(e.target.checked)} />
+              Free only
+            </label>
+          )}
         </div>
         <div className="actions">
           <button className="ghost" onClick={clear} disabled={busy || messages.length === 0}>

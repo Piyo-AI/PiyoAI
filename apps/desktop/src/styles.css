@@ -277,3 +277,26 @@ textarea:focus {
   align-items: center;
   gap: 6px;
 }
+
+.picker {
+  align-items: center;
+}
+.tag {
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 99px;
+  padding: 1px 9px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.tag.free {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.tag.paid {
+  color: var(--muted);
+}
+.picker .check {
+  white-space: nowrap;
+  font-size: 13px;
+}

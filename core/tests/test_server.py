@@ -101,3 +101,9 @@ def test_ws_unreachable_local_provider_fails_fast(client):
     assert event["type"] == "error"
     assert "Couldn't connect to Ollama" in event["message"] and "Is it running?" in event["message"]
     assert time.monotonic() - start < 15
+
+
+def test_openrouter_lists_models_without_a_key(client):
+    providers = {p["id"]: p for p in client.get("/api/providers", headers=AUTH).json()}
+    assert providers["openrouter"]["public_models"] is True
+    assert providers["openai"]["public_models"] is False

@@ -24,6 +24,43 @@ class MissingApiKey(RuntimeError):
     pass
 
 
+class ModelInfo(BaseModel):
+    id: str
+    # None means the provider doesn't report it (most don't).
+    free: bool | None = None
+    context_length: int | None = None
+    tools: bool | None = None
+
+
+def _is_zero(value: object) -> bool:
+    try:
+        return float(value) == 0  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+
+
+def parse_openrouter_models(payload: dict) -> list[ModelInfo]:
+    """OpenRouter's /models reports pricing and supported parameters for every model."""
+    models = []
+    for m in payload.get("data", []):
+        pricing = m.get("pricing")
+        free = None
+        if pricing is not None:
+            free = m["id"].endswith(":free") or (
+                _is_zero(pricing.get("prompt")) and _is_zero(pricing.get("completion"))
+            )
+        params = m.get("supported_parameters")
+        models.append(
+            ModelInfo(
+                id=m["id"],
+                free=free,
+                context_length=m.get("context_length"),
+                tools=None if params is None else "tools" in params,
+            )
+        )
+    return sorted(models, key=lambda m: m.id)
+
+
 # Local servers that aren't running should fail in seconds, not minutes.
 _TIMEOUT = httpx.Timeout(120.0, connect=5.0)
 _MAX_RETRIES = 1
@@ -99,8 +136,15 @@ async def stream_chat(
             yield chunk.choices[0].delta.content
 
 
-async def list_models(provider: Provider) -> list[str]:
+async def list_models(provider: Provider) -> list[ModelInfo]:
     """Fetch the provider's live model list (avoids hard-coding model names that go stale)."""
+    if "openrouter.ai" in provider.base_url:
+        # Public endpoint; the key is optional here but sent when we have one.
+        headers = {"Authorization": f"Bearer {key}"} if (key := provider.api_key()) else {}
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as http:
+            res = await http.get(f"{provider.base_url.rstrip('/')}/models", headers=headers)
+            res.raise_for_status()
+            return parse_openrouter_models(res.json())
     client = _client(provider)
-    ids = [m.id async for m in client.models.list()]
-    return sorted(ids)
+    models = [ModelInfo(id=m.id) async for m in client.models.list()]
+    return sorted(models, key=lambda m: m.id)

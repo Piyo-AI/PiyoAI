@@ -10,9 +10,18 @@ export interface Provider {
   requires_key: boolean;
   local: boolean;
   preset: boolean;
+  public_models: boolean;
   default_model: string | null;
   docs_url: string | null;
   has_key: boolean;
+}
+
+export interface ModelInfo {
+  id: string;
+  /** null when the provider doesn't report pricing (most don't). */
+  free: boolean | null;
+  context_length: number | null;
+  tools: boolean | null;
 }
 
 export interface NewProvider {
@@ -84,7 +93,7 @@ export const api = {
   removeProvider: (id: string) => request<void>("DELETE", `/api/providers/${id}`),
   setKey: (id: string, key: string) => request<void>("PUT", `/api/providers/${id}/key`, { key }),
   deleteKey: (id: string) => request<void>("DELETE", `/api/providers/${id}/key`),
-  models: (id: string) => request<string[]>("GET", `/api/providers/${id}/models`),
+  models: (id: string) => request<ModelInfo[]>("GET", `/api/providers/${id}/models`),
 };
 
 /** One chat WebSocket; reconnects on demand. */

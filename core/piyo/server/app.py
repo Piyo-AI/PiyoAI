@@ -12,6 +12,7 @@ from piyo import __version__
 from piyo.models import (
     ChatMessage,
     MissingApiKey,
+    ModelInfo,
     Provider,
     ProviderRegistry,
     ProviderUpdate,
@@ -113,7 +114,7 @@ def create_app(token: str, registry: ProviderRegistry | None = None) -> FastAPI:
         registry.delete_key(provider_id)
 
     @app.get("/api/providers/{provider_id}/models", dependencies=auth)
-    async def models(provider_id: str) -> list[str]:
+    async def models(provider_id: str) -> list[ModelInfo]:
         provider = get_provider(provider_id)
         try:
             return await list_models(provider)

@@ -31,6 +31,8 @@ class Provider(BaseModel):
     requires_key: bool = True
     local: bool = False
     preset: bool = False
+    # The model list can be fetched without an API key (OpenRouter), so the app can show it early.
+    public_models: bool = False
     # Env var checked when the keychain has no key (development convenience).
     key_env: str | None = None
     default_model: str | None = None
@@ -78,6 +80,7 @@ PRESETS: list[Provider] = [
         api_style=ApiStyle.OPENAI,
         base_url="https://openrouter.ai/api/v1",
         key_env="OPENROUTER_API_KEY",
+        public_models=True,
         docs_url="https://openrouter.ai/keys",
     ),
     Provider(

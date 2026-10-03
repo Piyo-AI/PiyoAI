@@ -332,6 +332,7 @@ _None blocking right now. Add new ones here._
 | 2026-10-03 | Skill scripts in Python (uv) and JS/TS (Deno) | Broad author base; Deno sandbox |
 | 2026-10-03 | Skill catalog ships with the first public release | Easy discovery & safer installs |
 | 2026-10-03 | Open source under MIT | User decision |
+| 2026-10-03 | OpenRouter free models: a "Free only" filter in the model picker (per-provider, remembered), not a separate provider or a provider-level toggle. Free/paid, context size and tool support come from OpenRouter's public `/models` list, which also loads without a key | Free vs paid is per model on the same endpoint and key; keeps paid models available for later |
 | 2026-10-03 | Repos owned by GitHub org **Piyo-AI** (https://github.com/Piyo-AI): `PiyoAI`, `piyo-skills`; MIT copyright holder "Piyo AI" | User decision |
 | 2026-10-03 | Catalog submissions reviewed by the Piyo AI team | User decision |
 | 2026-10-03 | Anonymous usage + crash reports, opt-in, no content ever collected | Privacy & trust |
