@@ -40,9 +40,78 @@ export function Settings({ providers, onChanged, onClose }: Props) {
           ))}
         </ul>
         <AddProvider run={run} />
+        <WebSearch />
         <Folders />
       </div>
     </div>
+  );
+}
+
+function WebSearch() {
+  const [status, setStatus] = useState<{ has_key: boolean; docs_url: string } | null>(null);
+  const [key, setKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () =>
+    api
+      .searchStatus()
+      .then(setStatus)
+      .catch((e) => setError((e as Error).message));
+  useEffect(() => {
+    load();
+  }, []);
+
+  const change = async (fn: () => Promise<unknown>) => {
+    setError(null);
+    try {
+      await fn();
+      setKey("");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <section className="folders">
+      <div className="row-head">
+        <h3>Web search (Brave)</h3>
+        <span className={status?.has_key ? "badge ok" : "badge"}>{status?.has_key ? "key saved" : "no key"}</span>
+      </div>
+      <p className="hint">
+        Lets Piyo search the web. Your search words are sent to Brave. The key is stored in your operating system's
+        keychain.
+      </p>
+      {error && <p className="error">{error}</p>}
+      <form
+        className="inline"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (key.trim()) change(() => api.setSearchKey(key.trim()));
+        }}
+      >
+        <input
+          type="password"
+          autoComplete="off"
+          placeholder={status?.has_key ? "Replace Brave Search key" : "Paste Brave Search key"}
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <button type="submit" disabled={!key.trim()}>
+          Save
+        </button>
+        {status?.has_key && (
+          <button type="button" className="ghost" onClick={() => change(() => api.deleteSearchKey())}>
+            Remove key
+          </button>
+        )}
+        {status && (
+          <a href={status.docs_url} target="_blank" rel="noreferrer">
+            Get a key
+          </a>
+        )}
+      </form>
+    </section>
   );
 }
 

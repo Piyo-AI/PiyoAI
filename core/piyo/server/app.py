@@ -27,7 +27,9 @@ from piyo.models.turn import Message, stream_turn
 from piyo.safety import ApprovalRequest, PermissionGate
 from piyo.skills import SkillRegistry
 from piyo.tools import ToolRegistry, core_tools
+from piyo.tools import search as search_mod
 from piyo.tools.files import file_tools
+from piyo.tools.search import search_tools
 from piyo.tools.web import web_tools
 
 # Tauri webview origins (Windows/Linux, macOS) and the Vite dev server.
@@ -60,6 +62,12 @@ class SkillsOut(BaseModel):
 class FolderEntry(BaseModel):
     path: str
     auto_changes: bool = False
+
+
+class SearchOut(BaseModel):
+    provider: str = "brave"
+    has_key: bool
+    docs_url: str = search_mod.DOCS_URL
 
 
 class FoldersIn(BaseModel):
@@ -96,7 +104,7 @@ def create_app(
     registry = registry or ProviderRegistry()
     skills = skills or SkillRegistry()
     folders = ApprovedFolders()
-    tools = ToolRegistry(core_tools() + file_tools(folders) + web_tools())
+    tools = ToolRegistry(core_tools() + file_tools(folders) + web_tools() + search_tools())
     app = FastAPI(title="Piyo Core", version=__version__)
     app.state.tools = tools
     app.add_middleware(
@@ -124,6 +132,20 @@ def create_app(
         return {"status": "ok", "version": __version__}
 
     auth = [Depends(require_token)]
+
+    @app.get("/api/search", dependencies=auth)
+    def search_status() -> SearchOut:
+        return SearchOut(has_key=bool(search_mod.get_key()))
+
+    @app.put("/api/search/key", dependencies=auth, status_code=204)
+    def set_search_key(body: KeyIn) -> None:
+        if not body.key.strip():
+            raise HTTPException(status_code=400, detail="The key is empty.")
+        search_mod.set_key(body.key.strip())
+
+    @app.delete("/api/search/key", dependencies=auth, status_code=204)
+    def delete_search_key() -> None:
+        search_mod.delete_key()
 
     @app.get("/api/folders", dependencies=auth)
     def get_folders() -> FoldersIn:

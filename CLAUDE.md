@@ -85,5 +85,5 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 
 Working: chat with streaming, providers/keys/model lists, agent loop with tool calling, permission gate with
 approval UI, stop/cancel, skill loading and per-skill tool grants, example skills `plan-my-day` and `downloads-organizer`.
-File tools (`files.*`, approved folders only; API `/api/folders`, Settings section to manage them, with a per-folder "no prompts for changes" switch). `web.fetch` (public hosts only, output fenced as untrusted; skill `web-reader`). Not yet: web search, conversation store, fallback for models without tool calling, sidecar launch in
+File tools (`files.*`, approved folders only; API `/api/folders`, Settings section to manage them, with a per-folder "no prompts for changes" switch). `web.fetch` (public hosts only, output fenced as untrusted; skill `web-reader`). `web.search` (Brave; key in keychain, `/api/search`; skill `web-research`). Not yet: conversation store, fallback for models without tool calling, sidecar launch in
 production builds, CI, task log, integrations. See `../docs/README.md` for the ordered plan.
