@@ -1,4 +1,5 @@
 mod core;
+mod rollback;
 
 use tauri::Manager;
 
@@ -17,9 +18,14 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<std::sync::Arc<core::CoreState>>().inner().clone();
             core::launch(app.handle().clone(), state);
+            rollback::check_on_start(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![core::core_status, core::restart_core])
+        .invoke_handler(tauri::generate_handler![core::core_status,
+            core::restart_core,
+            rollback::begin_update,
+            rollback::confirm_update_healthy
+        ])
         .build(tauri::generate_context!())
         .expect("error while building Piyo AI")
         .run(move |_app, event| {

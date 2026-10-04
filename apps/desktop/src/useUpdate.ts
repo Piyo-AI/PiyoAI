@@ -42,6 +42,9 @@ export function useUpdate(auto = false) {
     let done = 0;
     setStatus({ state: "installing", percent: null });
     try {
+      // Records the version being left, so a new version that never starts can be rolled back (rollback.rs).
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("begin_update", { to: pending.version });
       await pending.downloadAndInstall((event) => {
         if (event.event === "Started") total = event.data.contentLength ?? 0;
         if (event.event === "Progress") {

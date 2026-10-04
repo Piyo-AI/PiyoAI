@@ -392,6 +392,19 @@ type CoreStatus =
 export const inTauri = () => "__TAURI_INTERNALS__" in window;
 
 // Inside the Tauri app the shell starts the core and hands us its random port and token.
+/**
+ * After an update the shell counts starts until the app proves it works (see rollback.rs). The proof is that the
+ * page can reach the core it started; three starts without it offer the user the previous version.
+ */
+async function confirmHealthy(port: number, invoke: (cmd: string) => Promise<unknown>): Promise<void> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+    if (res.ok) await invoke("confirm_update_healthy");
+  } catch {
+    // Not healthy (yet): the start stays counted.
+  }
+}
+
 // In a plain browser (`npm run dev`) the core is started by hand with a fixed port and token:
 //   PIYO_PORT=8765 PIYO_TOKEN=dev-token uv run piyo-core
 async function resolveConnection(): Promise<Connection> {
@@ -400,7 +413,10 @@ async function resolveConnection(): Promise<Connection> {
     const deadline = Date.now() + 120_000; // the first start may sync Python dependencies
     for (;;) {
       const status = await invoke<CoreStatus>("core_status");
-      if (status.state === "ready") return { port: status.port, token: status.token };
+      if (status.state === "ready") {
+        void confirmHealthy(status.port, invoke);
+        return { port: status.port, token: status.token };
+      }
       if (status.state === "failed") throw new Error(status.error);
       if (Date.now() > deadline) throw new Error("The Piyo core is taking too long to start.");
       await new Promise((r) => setTimeout(r, 250));
