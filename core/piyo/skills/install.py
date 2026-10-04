@@ -126,12 +126,13 @@ class SkillInstaller:
         expected_sha256: str | None = None,
         source: str | None = None,
         max_zip_bytes: int = MAX_ZIP_BYTES,
+        verified: bool = False,
     ) -> Preview:
         """Unpack a skill zip and describe it. Nothing is installed.
 
         `subpath` picks one skill folder out of a repo archive (`<repo>-<ref>/<subpath>/...`); the catalog
         uses it. `expected_sha256` is the package hash the catalog promised; a different one refuses the
-        install.
+        install. `verified` is for the catalog client only: the index that promised the hash was signed.
         """
         if len(data) > max_zip_bytes:
             raise InstallError(f"That file is too large to be a skill (limit {max_zip_bytes // 2**20} MB).")
@@ -151,7 +152,7 @@ class SkillInstaller:
                 self._extract(zf, entries, root, folder / "_pending")
                 digest = hashlib.sha256(data).hexdigest()
                 preview = self._preview(
-                    folder, token, digest, source or f"zip {digest[:12]}", expected_sha256
+                    folder, token, digest, source or f"zip {digest[:12]}", expected_sha256, verified
                 )
             except BaseException:
                 shutil.rmtree(folder, ignore_errors=True)
@@ -240,7 +241,13 @@ class SkillInstaller:
                     out.write(chunk)
 
     def _preview(
-        self, folder: Path, token: str, digest: str, source: str, expected_sha256: str | None
+        self,
+        folder: Path,
+        token: str,
+        digest: str,
+        source: str,
+        expected_sha256: str | None,
+        verified: bool = False,
     ) -> Preview:
         pending = folder / "_pending"
         try:
@@ -264,7 +271,8 @@ class SkillInstaller:
             old_version = _installed_version(installed)
             previous = _approved(installed)
             added = [p for p in perms if p not in previous]
-        staged_info = {"name": name, "digest": digest, "source": source}
+        verified = verified and expected_sha256 is not None  # a signature needs the hash check too
+        staged_info = {"name": name, "digest": digest, "source": source, "verified": verified}
         (folder / "preview.json").write_text(json.dumps(staged_info), encoding="utf-8")
         files = sorted(p.relative_to(final).as_posix() for p in final.rglob("*") if p.is_file())
         return Preview(
@@ -278,6 +286,7 @@ class SkillInstaller:
             files=files,
             installed_version=old_version,
             added=added,
+            verified=verified,
         )
 
     # -- commit / remove -------------------------------------------------------------------
@@ -311,6 +320,7 @@ class SkillInstaller:
                     "sha256": info["digest"],
                     "installed_at": datetime.now(UTC).isoformat(timespec="seconds"),
                     "approved": permissions_of(skill),  # dropped permissions must be re-approved later
+                    "verified": info.get("verified") is True,
                 }
             ),
             encoding="utf-8",

@@ -1124,6 +1124,7 @@ def create_app(
                     model_issues=model_issues(sk.manifest.requires.model, caps) if caps else [],
                     removable=sk.source == "user",
                     install_source=read_meta(sk.path).get("source") if sk.source == "user" else None,
+                    verified=sk.source == "user" and read_meta(sk.path).get("verified") is True,
                     withdrawn_reason=(
                         withdrawn[sk.manifest.name].reason
                         if sk.manifest.name in withdrawn
@@ -1285,7 +1286,7 @@ def create_app(
         """Download a skill from a GitHub address (pinned to a commit) for review, like a zip."""
         try:
             found = await stage_git(
-                lambda repo: CatalogClient(repo, transport=catalog_client._transport),
+                lambda repo: CatalogClient(repo, transport=catalog_client._transport, verify_signature=False),
                 skill_installer(), body.url, body.folder, body.commit,
             )
         except (CatalogError, InstallError) as e:

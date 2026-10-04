@@ -195,15 +195,20 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
         <div className="install-review" role="dialog" aria-label="Review skill">
           <h4>
             {isUpdate ? "Update" : "Install"} {preview.name} <span className="hint">v{preview.version}</span>
-            <sup className="pill unverified">Unverified</sup>
+            {preview.verified ? (
+              <sup className="pill badge-official" title="The catalog's signature and this download's fingerprint both checked out">
+                From the signed catalog
+              </sup>
+            ) : (
+              <sup className="pill unverified">Unverified</sup>
+            )}
           </h4>
           <p>{preview.description}</p>
           <p className="hint">
             {preview.author ? `By ${preview.author}. ` : ""}From {preview.source}.{" "}
-            {preview.source.startsWith("catalog")
-              ? "The download matched the catalog's fingerprint, but the catalog is not signed yet, so Piyo cannot vouch for it."
-              : "This file did not come from the catalog, so Piyo cannot vouch for it."}{" "}
-            Only install skills from people you trust.
+            {preview.verified
+              ? "The catalog's signature checked out and this download matches its fingerprint, so it is the version the catalog maintainers published. Review what it asks for below."
+              : "This file did not come from the signed catalog, so Piyo cannot vouch for it. Only install skills from people you trust."}
           </p>
           {isUpdate && <p className="hint">Replaces v{preview.installed_version}; the old version is kept as a backup.</p>}
           {preview.added.length === 0 ? (

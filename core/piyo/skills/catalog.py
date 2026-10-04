@@ -14,11 +14,13 @@ from dataclasses import dataclass, field
 import httpx
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from piyo.skills import signing
 from piyo.skills.install import InstallError, Preview, SkillInstaller
 
 REPO = "Piyo-AI/piyo-skills"
 BRANCH = "main"
 MAX_INDEX_BYTES = 1024 * 1024
+MAX_SIGNATURE_BYTES = 4 * 1024
 MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024
 _SHA = re.compile(r"[0-9a-f]{40}")
 _GITHUB_URL = re.compile(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")
@@ -111,8 +113,12 @@ class CatalogClient:
         repo: str = REPO,
         branch: str = BRANCH,
         transport: httpx.AsyncBaseTransport | None = None,
+        verify_signature: bool = True,
     ) -> None:
         self.repo, self.branch, self._transport = repo, branch, transport
+        # Only the catalog itself is signed. `git_source` reuses this client to download a repo the user named
+        # and never reads an index, so it turns this off.
+        self.verify_signature = verify_signature
 
     async def _get(self, url: str, limit: int, accept: str | None = None) -> bytes:
         host = httpx.URL(url).host
@@ -156,14 +162,26 @@ class CatalogClient:
             raise CatalogError("The catalog sent an unexpected answer.")
         return sha
 
+    async def _check_signature(self, base: str, index: bytes) -> None:
+        """Refuses an index that is not signed by a key this app trusts, before anything in it is read."""
+        try:
+            sig = await self._get(f"{base}/index.json.sig", MAX_SIGNATURE_BYTES)
+        except CatalogNotFound:
+            raise CatalogError("The skill catalog is not signed, so it was not used.") from None
+        try:
+            signing.verify(index, sig.decode("utf-8", errors="replace"))
+        except signing.SignatureError as e:
+            raise CatalogError(str(e)) from None
+
     async def fetch(self, commit: str | None = None) -> Catalog:
         """The index at `commit`, or at the branch head when none is given."""
         if commit is not None and not _SHA.fullmatch(commit):
             raise CatalogError("That is not a commit.")
         commit = commit or await self._resolve()
-        raw = await self._get(
-            f"https://raw.githubusercontent.com/{self.repo}/{commit}/index.json", MAX_INDEX_BYTES
-        )
+        base = f"https://raw.githubusercontent.com/{self.repo}/{commit}"
+        raw = await self._get(f"{base}/index.json", MAX_INDEX_BYTES)
+        if self.verify_signature:
+            await self._check_signature(base, raw)
         try:
             doc = json.loads(raw)
         except ValueError:
@@ -203,6 +221,7 @@ class CatalogClient:
             source=f"catalog {self.repo} @ {catalog.commit[:7]}"
             + (f", from {repo} @ {ref[:7]}" if src else ""),
             max_zip_bytes=MAX_DOWNLOAD_BYTES,
+            verified=self.verify_signature,  # the signed index vouches for this package's hash
         )
         if preview.name != entry.name or preview.version != entry.version:
             installer.cancel(preview.token)

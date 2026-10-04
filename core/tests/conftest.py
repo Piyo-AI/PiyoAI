@@ -32,6 +32,12 @@ def isolated(tmp_path, monkeypatch):
                 "DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "GEMINI_API_KEY",
                 "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"):
         monkeypatch.delenv(var, raising=False)
+    # The catalog is only read when its signature verifies; tests sign with a key of their own.
+    from catalog_signing import TRUSTED
+
+    from piyo.skills import signing
+
+    monkeypatch.setattr(signing, "TRUSTED_KEYS", TRUSTED)
     # Deleting sends files to the OS trash: tests move them into a folder of their own, never the real one.
     trash = tmp_path / "trash"
     trash.mkdir(exist_ok=True)
