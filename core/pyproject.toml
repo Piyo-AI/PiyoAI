@@ -19,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "pyyaml>=6",
     "tzdata>=2024.1",  # time zone names on Windows, which has no system database
+    "send2trash>=2.1.0",
 ]
 
 [project.scripts]

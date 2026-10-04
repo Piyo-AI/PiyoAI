@@ -11,6 +11,7 @@ import re
 import httpx
 
 from piyo.config.secrets import delete_secret, get_secret, set_secret
+from piyo.safety.exfil import OutboundGuard
 from piyo.safety.untrusted import wrap_untrusted
 from piyo.tools.base import RunContext, Tool
 from piyo.tools.web import WebError
@@ -113,5 +114,7 @@ def search_tools(transport: httpx.AsyncBaseTransport | None = None) -> list[Tool
                 "required": ["query"],
             },
             handler=impl.search,
+            guard=OutboundGuard("query", "query"),
+            summarize=lambda a: f"Search the web for \"{str(a.get('query'))[:200]}\"",
         )
     ]

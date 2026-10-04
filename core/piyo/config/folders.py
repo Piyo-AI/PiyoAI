@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from piyo.config import data_dir
+from piyo.config.protected import broad_reason
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,8 @@ class ApprovedFolders:
             p = p.resolve()
             if not p.is_dir():
                 raise ValueError(f"Not a folder: {grant.path}")
+            if reason := broad_reason(p):
+                raise ValueError(f"{p}: {reason}")
             resolved[p] = FolderGrant(p, grant.auto_changes)
         out = list(resolved.values())
         self.path.write_text(

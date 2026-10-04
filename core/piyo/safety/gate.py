@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from piyo.tools.base import Risk, Tool
+from piyo.tools.base import Risk, RunContext, Tool
 
 
 @dataclass
@@ -41,8 +41,14 @@ class PermissionGate:
     def __init__(self, approver: Approver | None = None) -> None:
         self._approver = approver
 
-    async def authorize(self, tool: Tool, arguments: dict, why: str = "") -> GateResult:
+    async def authorize(
+        self, tool: Tool, arguments: dict, why: str = "", ctx: RunContext | None = None
+    ) -> GateResult:
         risk = tool.risk_of(arguments)
+        # The run has read private data and this call sends a model-written address or query out: ask.
+        held = tool.guard_reason(arguments, ctx) if risk is Risk.AUTO else None
+        if held:
+            risk = Risk.CONFIRM
         if risk is Risk.AUTO:
             return GateResult(True)
         if risk is Risk.NEVER:
@@ -51,7 +57,8 @@ class PermissionGate:
             )
         if self._approver is None:
             return GateResult(False, "This action needs the user's approval and none is available.")
-        request = ApprovalRequest(tool.name, arguments, risk, tool.summary_of(arguments), why)
+        summary = tool.summary_of(arguments) + (f". {held}" if held else "")
+        request = ApprovalRequest(tool.name, arguments, risk, summary, why)
         try:
             approved = await self._approver(request)
         except ApprovalDeferred as held:

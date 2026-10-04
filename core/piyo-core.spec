@@ -17,7 +17,7 @@ hiddenimports = []
 
 datas += collect_data_files("tzdata")  # Windows has no system time zone database
 # Imported by name at run time, so the import scan cannot see them.
-for package in ("uvicorn", "keyring.backends", "anyio"):
+for package in ("uvicorn", "keyring.backends", "anyio", "send2trash"):
     hiddenimports += collect_submodules(package)
 # Playwright ships its Node driver as package data; the browser tools and the Chromium installer run it.
 pw_datas, pw_binaries, pw_hidden = collect_all("playwright")

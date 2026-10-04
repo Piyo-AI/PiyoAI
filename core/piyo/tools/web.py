@@ -17,6 +17,7 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
+from piyo.safety.exfil import OutboundGuard
 from piyo.safety.untrusted import wrap_untrusted
 from piyo.tools.base import RunContext, Tool
 
@@ -186,5 +187,7 @@ def web_tools(
                 "required": ["url"],
             },
             handler=impl.fetch,
+            guard=OutboundGuard("url", "url"),
+            summarize=lambda a: f"Fetch {str(a.get('url'))[:300]}",
         )
     ]

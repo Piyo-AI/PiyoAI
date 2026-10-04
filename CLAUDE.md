@@ -138,6 +138,18 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
   system browser through `tauri-plugin-opener` (capabilities `opener:allow-open-url` and `opener:allow-default-urls`; the first has no URL scope on its own, so without the second every open is denied); use `openExternal` for buttons. Adding the plugin needs a
   Rust rebuild: restart `tauri:dev`.
 - **Tool results can carry pictures** (browser screenshots): a handler calls `ctx.attach_image(...)`, the loop moves them onto the tool `Message.images` (dropped when the call failed). Anthropic gets them inside the `tool_result`; OpenAI-style gets a user message with `image_url` parts right after the group of tool results. `images` is `exclude=True`, so they are never saved with the conversation (history reloaded later has the text only); `fit_context` counts `IMAGE_TOKENS` per picture and drops old ones first. Text-only (prompt-tools) models never get them. `browser.screenshot` refuses only a model known to lack vision.
+- **Private data and outbound strings** (`safety/exfil.py`). `RunContext.private_data` turns on when a tool that returns the user's
+  data has run (`produces_private_data`: `files.*`, `gmail.*`, `calendar.*`, `google.*`, `memory.recall`, `skill.run_script`) or the
+  chat history holds such a result. A `Tool` with a `guard` (`OutboundGuard`: `web.fetch` and `browser.open` by URL, `web.search` by
+  query) then needs approval unless the host appears in `RunContext.user_text` (the user's own messages) or was approved this run;
+  `PermissionGate.authorize(..., ctx)` adds the reason to the card. A guard only adds a confirmation. A new tool must be classified in
+  `tests/test_exfil.py` (`PUBLIC`, or private by name), and a new tool that sends a model-written address or query out needs a guard.
+- **Protected paths** (`config/protected.py`). `broad_reason` (drive, home folder, system folders, protected places) is checked when
+  folders are approved (`ApprovedFolders.set`) and again for existing grants in `FileTools._resolve`; `protected_reason` (keys, `.env`,
+  browser profiles, Piyo's data dir) is checked for every path any file tool resolves, and listings hide such entries. `files.delete`
+  calls `send2trash` (a module attribute, replaced in `tests/conftest.py` so no test touches the real trash). The test fixture puts the
+  data dir in `tmp_path/piyo-data` because approved test folders live under `tmp_path`.
+- **WebSocket origin.** `/ws/chat` refuses an `Origin` that is not in `ALLOWED_ORIGINS` (close code 4403) before checking the token.
 - Tool names use dots internally (`gmail.read`); the wire name is `gmail__read` (providers reject dots).
 
 ## Invariants (do not break; add a test when touching them)

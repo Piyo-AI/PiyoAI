@@ -2,6 +2,7 @@ import sqlite3
 
 import pytest
 
+from piyo.config import data_dir
 from piyo.models.turn import Message, ToolCall
 from piyo.store import ConversationStore, UnknownConversation, complete_tool_calls
 from piyo.store.conversations import DEFAULT_TITLE, TITLE_CHARS
@@ -107,9 +108,9 @@ def test_newer_database_is_refused_with_a_clear_message(tmp_path):
         ConversationStore(path).list()
 
 
-def test_default_path_uses_data_dir(tmp_path):
+def test_default_path_uses_data_dir():
     ConversationStore().create()
-    assert (tmp_path / "piyo.db").exists()
+    assert (data_dir() / "piyo.db").exists()
 
 
 def test_complete_tool_calls_fills_gaps_only():

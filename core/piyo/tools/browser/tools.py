@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 
+from piyo.safety.exfil import OutboundGuard
 from piyo.safety.untrusted import wrap_untrusted
 from piyo.tools.base import Risk, RunContext, Tool
 from piyo.tools.browser.rules import click_risk, is_tracking_field, looks_like_secret
@@ -135,6 +136,8 @@ def browser_tools(session: BrowserSession) -> list[Tool]:
                 "required": ["url"],
             },
             handler=impl.open,
+            guard=OutboundGuard("url", "url"),
+            summarize=lambda a: f"Open {str(a.get('url'))[:300]} in Piyo's browser",
         ),
         Tool(
             name="browser.read",

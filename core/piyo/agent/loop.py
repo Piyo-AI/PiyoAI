@@ -24,6 +24,7 @@ from piyo.models.turn import (
     stream_turn,
 )
 from piyo.safety import PermissionGate
+from piyo.safety.exfil import history_has_private, produces_private_data
 from piyo.safety.untrusted import shorten
 from piyo.skills import SkillRegistry
 from piyo.store import RunLog
@@ -121,7 +122,9 @@ class Agent:
             model=self.model,
         )
         self.active_skills = ctx.active_skills
-        catalog = self.skills.catalog_prompt(self.model_caps)
+        ctx.user_text = "\n".join(m.content for m in messages if m.role == "user")
+        ctx.private_data = history_has_private(messages)
+        catalog =self.skills.catalog_prompt(self.model_caps)
         memory = self.memory_prompt() if self.memory_prompt else ""
         started_run = time.monotonic()
         self._approval_wait = 0.0
@@ -163,7 +166,9 @@ class Agent:
                 before = set(ctx.active_skills)
                 ctx.take_images()  # nothing left over from an earlier call
                 output, is_error = await self._execute(call, ctx, done.text)
-                images = [] if is_error else ctx.take_images()
+                if not is_error and produces_private_data(call.name):
+                    ctx.private_data = True  # outbound tools ask from now on (safety/exfil.py)
+                images =[] if is_error else ctx.take_images()
                 if self.log:
                     self.log.step(
                         "tool",
@@ -260,10 +265,12 @@ class Agent:
             msg = f"Missing required argument(s) for {call.name}: {', '.join(missing)}."
             return msg, True, False
         asked = time.monotonic()
-        decision = await self.gate.authorize(tool, call.arguments, why)
+        decision = await self.gate.authorize(tool, call.arguments, why, ctx)
         self._approval_wait += time.monotonic() - asked  # the user's thinking time isn't the run's
         if not decision.allowed:
             return decision.reason, True, decision.declined
+        if tool.guard is not None:
+            tool.guard.remember(call.arguments, ctx)  # approved: not asked about this host again
         try:
             output = await tool.handler(call.arguments, ctx)
         except Exception as e:

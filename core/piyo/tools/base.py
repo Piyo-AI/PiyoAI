@@ -15,6 +15,7 @@ from piyo.models.capabilities import ModelCaps
 from piyo.models.turn import Image, ToolSpec
 
 if TYPE_CHECKING:
+    from piyo.safety.exfil import OutboundGuard
     from piyo.skills import SkillRegistry
 
 
@@ -36,6 +37,12 @@ class RunContext:
 
     provider_id: str | None = None  # which model this run uses, so a schedule can use the same
     model: str | None = None
+
+    # What the run has seen, for `safety/exfil.py`: a tool that returns the user's private data has run (or an
+    # earlier turn of the chat holds such a result), the user's own words, and hosts allowed so far.
+    private_data: bool = False
+    user_text: str = ""
+    approved_hosts: set[str] = field(default_factory=set)
 
     # Pictures tools attached during the current call; the loop moves them onto the tool result message.
     pending_images: list[Image] = field(default_factory=list)
@@ -75,10 +82,21 @@ class Tool:
     summarize: Callable[[dict], str] | None = None
     # Core tools are always available; the rest must be granted by a loaded skill.
     core: bool = False
+    # For calls that carry a model-written address or query out of the computer: asks for approval once the
+    # run has read private data (safety/exfil.py). It can only add a confirmation, never remove one.
+    guard: OutboundGuard | None = None
 
     @property
     def wire_name(self) -> str:
         return self.name.replace(".", "__")
+
+    def guard_reason(self, args: dict, ctx: RunContext | None) -> str | None:
+        if self.guard is None or ctx is None:
+            return None
+        try:
+            return self.guard.reason(args, ctx)
+        except Exception:
+            return "Piyo could not check where this goes."  # fail towards asking
 
     def risk_of(self, args: dict) -> Risk:
         if self.risk_for is None:

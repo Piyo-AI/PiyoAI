@@ -177,6 +177,27 @@ async def test_delete_rules(env):
         await run(env, "files.delete", path=str(root))
 
 
+async def test_delete_goes_to_the_trash_and_can_be_restored(env, tmp_path):
+    root = env[0]
+    (root / "a.txt").write_text("keep me", encoding="utf-8")
+    out = await run(env, "files.delete", path=str(root / "a.txt"))
+    assert "trash" in out and not (root / "a.txt").exists()
+    assert [p.read_text(encoding="utf-8") for p in (tmp_path / "trash").iterdir()] == ["keep me"]
+
+
+async def test_if_the_trash_fails_nothing_is_deleted(env, monkeypatch):
+    root = env[0]
+    (root / "a.txt").write_text("keep me", encoding="utf-8")
+
+    def broken(path):
+        raise OSError("no trash on this system")
+
+    monkeypatch.setattr("piyo.tools.files.send2trash", broken)
+    with pytest.raises(Exception, match="nothing was deleted"):
+        await run(env, "files.delete", path=str(root / "a.txt"))
+    assert (root / "a.txt").read_text(encoding="utf-8") == "keep me"
+
+
 async def test_gate_blocks_unapproved_move(env, tmp_path):
     """End to end through the agent: a declined move leaves the file in place."""
     root, _, tools, _ = env

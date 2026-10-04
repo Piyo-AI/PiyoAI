@@ -60,6 +60,26 @@ def test_ws_rejects_bad_token(client):
         ws.receive_json()
 
 
+def test_ws_refuses_a_web_page_that_is_not_the_app_even_with_the_token(client):
+    for origin in ("https://evil.example", "http://localhost:9999", "null"):
+        with (
+            pytest.raises(WebSocketDisconnect) as refused,
+            client.websocket_connect(f"/ws/chat?token={TOKEN}", headers={"origin": origin}),
+        ):
+            pass
+        assert refused.value.code == 4403
+
+
+@pytest.mark.parametrize(
+    "origin", ["http://tauri.localhost", "tauri://localhost", "http://localhost:1420", None]
+)
+def test_ws_accepts_the_app_and_programs_without_an_origin(client, origin):
+    headers = {"origin": origin} if origin else {}
+    with client.websocket_connect(f"/ws/chat?token={TOKEN}", headers=headers) as ws:
+        ws.send_json({"type": "cancel"})
+        assert ws.receive_json()["type"] == "done"
+
+
 def scripted(*turns):
     """A fake model turn function that plays one list of events per model call."""
     queue = list(turns)

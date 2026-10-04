@@ -1524,6 +1524,12 @@ def create_app(
 
     @app.websocket("/ws/chat")
     async def chat(ws: WebSocket) -> None:
+        # A browser always names the page a socket is opened from; a page that is not one of ours is refused
+        # even with the right token (a program that sends no Origin is not a web page, the token covers it).
+        origin = ws.headers.get("origin")
+        if origin is not None and origin not in ALLOWED_ORIGINS:
+            await ws.close(code=4403)
+            return
         # Browsers can't set headers on WebSockets, so the token comes as a query param.
         if not secrets.compare_digest(ws.query_params.get("token", ""), token):
             await ws.close(code=4401)

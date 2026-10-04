@@ -108,7 +108,7 @@ def test_file_tool_summaries_name_the_real_paths(tmp_path):
     tools = {t.name: t for t in file_tools(ApprovedFolders(tmp_path / "g.json"))}
     move = tools["files.move"].summary_of({"source": "/a/x", "destination": "/a/y"})
     assert move == "Move /a/x to /a/y"
-    assert tools["files.delete"].summary_of({"path": "/a/x"}) == "Permanently delete /a/x"
+    assert tools["files.delete"].summary_of({"path": "/a/x"}) == "Move /a/x to the trash"
     write = tools["files.write"].summary_of({"path": "/a/x", "content": "abc", "overwrite": True})
     assert write == "Replace the contents of /a/x (3 characters)"
 

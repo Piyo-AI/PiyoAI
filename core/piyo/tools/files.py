@@ -2,7 +2,7 @@
 
 Paths are resolved (symlinks and `..` followed) before the folder check, so a link inside an
 approved folder can't lead outside it. Reads are `auto`. Changes are `confirm` unless the folder is
-marked `auto_changes`; delete and overwrite always are.
+marked `auto_changes`; delete and overwrite always are. Delete goes to the OS trash.
 """
 
 from __future__ import annotations
@@ -10,7 +10,10 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from send2trash import send2trash
+
 from piyo.config.folders import ApprovedFolders
+from piyo.config.protected import broad_reason, protected_reason
 from piyo.safety.untrusted import wrap_untrusted
 from piyo.tools.base import Risk, RunContext, Tool
 
@@ -28,7 +31,8 @@ class FileTools:
 
     def _resolve(self, raw: object) -> tuple[Path, Path]:
         """Return (resolved path, the approved root containing it)."""
-        roots = [g.path.resolve() for g in self._folders.list()]
+        # A folder approved before the breadth check existed (a drive, the home folder) is ignored.
+        roots = [r for r in (g.path.resolve() for g in self._folders.list()) if not broad_reason(r)]
         if not roots:
             raise FileAccessError(
                 "No folders are approved for file access. Ask the user to add one in Settings."
@@ -41,6 +45,8 @@ class FileTools:
         path = path.resolve()
         for root in roots:
             if path == root or path.is_relative_to(root):
+                if reason := protected_reason(path):
+                    raise FileAccessError(f"Piyo does not touch {raw}: {reason}.")
                 return path, root
         approved = ", ".join(str(r) for r in roots)
         raise FileAccessError(f"{raw} is outside the approved folders ({approved}).")
@@ -66,7 +72,7 @@ class FileTools:
         return f"Move {args.get('source')} to {args.get('destination')}"
 
     def summary_delete(self, args: dict) -> str:
-        return f"Permanently delete {args.get('path')}"
+        return f"Move {args.get('path')} to the trash"
 
     def risk_create(self, args: dict) -> Risk:
         return Risk.AUTO if self._auto(args.get("path")) else Risk.CONFIRM
@@ -99,13 +105,17 @@ class FileTools:
         path, _ = self._resolve(args.get("path"))
         if not path.is_dir():
             raise FileAccessError(f"Not a folder: {path}")
-        entries = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        everything = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        entries = [p for p in everything if not protected_reason(p)]
+        hidden = len(everything) - len(entries)
         lines = [
             f"{p.name}/" if p.is_dir() else f"{p.name}  ({p.stat().st_size} bytes)"
             for p in entries[:MAX_LIST_ENTRIES]
         ]
         if len(entries) > MAX_LIST_ENTRIES:
             lines.append(f"... {len(entries) - MAX_LIST_ENTRIES} more not shown")
+        if hidden:
+            lines.append(f"({hidden} protected item(s) not shown: keys, credentials, browser data)")
         # File names are chosen by whoever made the file, so they are outside text too.
         return wrap_untrusted("\n".join(lines) or "(empty folder)", f"folder: {path}")
 
@@ -165,14 +175,15 @@ class FileTools:
             raise FileAccessError("An approved folder itself can't be deleted.")
         if not path.exists():
             raise FileAccessError(f"Not found: {path}")
-        if path.is_dir():
-            try:
-                path.rmdir()
-            except OSError:
-                raise FileAccessError(f"{path} is not empty; only empty folders go.") from None
-        else:
-            path.unlink()
-        return f"Deleted {path}"
+        if path.is_dir() and any(path.iterdir()):
+            raise FileAccessError(f"{path} is not empty; only empty folders go.")
+        try:
+            send2trash(str(path))  # recoverable: the OS trash, never a permanent delete
+        except Exception as e:
+            raise FileAccessError(
+                f"Could not move {path} to the trash ({type(e).__name__}), so nothing was deleted."
+            ) from None
+        return f"Moved {path} to the trash (the user can restore it from there)."
 
 
 def file_tools(folders: ApprovedFolders) -> list[Tool]:
@@ -244,7 +255,7 @@ def file_tools(folders: ApprovedFolders) -> list[Tool]:
         ),
         Tool(
             name="files.delete",
-            description="Permanently delete one file or one empty folder in an approved folder.",
+            description="Move one file or one empty folder in an approved folder to the trash.",
             parameters=schema(["path"], path=path),
             handler=impl.delete,
             risk=Risk.CONFIRM,
