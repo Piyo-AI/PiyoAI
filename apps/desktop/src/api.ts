@@ -238,6 +238,15 @@ export interface SkillInfo {
   install_source: string | null;
   /** From the signed catalog. Installs from a file never are. */
   verified: boolean;
+  /** Set when the catalog withdrew the installed version: why. */
+  withdrawn_reason: string | null;
+}
+
+export interface CatalogCheck {
+  /** False when the catalog could not be reached; `withdrawn` then holds what was already known. */
+  checked: boolean;
+  withdrawn: { name: string; version: string; reason: string; acknowledged: boolean }[];
+  updates: { name: string; version: string; installed_version: string; adds_permissions: string[] }[];
 }
 
 export interface SkillCheck {
@@ -643,6 +652,8 @@ export const api = {
   memorySettings: () => request<MemorySettings>("GET", "/api/memory-settings"),
   setMemorySensitive: (sensitive: boolean) => request<MemorySettings>("PUT", "/api/memory-settings", { sensitive }),
   catalog: () => request<Catalog>("GET", "/api/catalog"),
+  checkCatalog: () => request<CatalogCheck>("POST", "/api/catalog/check"),
+  acknowledgeWithdrawn: (name: string) => request<void>("POST", `/api/catalog/withdrawn/${name}/acknowledge`),
   stageCatalogSkill: (name: string, commit: string) =>
     request<InstallPreview>("POST", "/api/catalog/install", { name, commit }),
   stageGitSkill: (url: string, folder?: string, commit?: string) =>

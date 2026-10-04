@@ -157,8 +157,8 @@ Third-party skills are untrusted code + untrusted instructions, so:
 - **Signing**: catalog releases are signed (e.g. minisign/Sigstore); the app verifies the signature and each package hash before install.
 - **Badges**: *Official* (Piyo team), *Verified publisher*, *Community*. Permissions are shown prominently on every listing.
 - **In-app browsing**: search, categories, install count, required integrations, setup difficulty; one-click install → permission review → `SETUP.md` wizard.
-- **Updates**: app checks the catalog for new versions; updates that add permissions require re-approval.
-- **Takedown**: catalog can flag a version as revoked; the app disables revoked skills and notifies the user.
+- **Updates**: the app checks the catalog at startup and when the settings window closes (`POST /api/catalog/check`, offline is silent) for new versions of skills installed from it; a notice lists the permissions an update adds, and installing it still needs them approved (the normal review).
+- **Takedown**: the catalog flags a version as revoked in `curation.json`. The same check switches an installed catalog skill off once when its version is withdrawn (`piyo/skills/revocation.py`, state in `skills_revoked.json`), shows the reason in a banner until acknowledged and on the skill's row, and the catalog refuses new installs of it. The user can switch it back on (not repeated for the same version) or uninstall; installing a fixed version switches it back on. Skills installed from a file or an arbitrary Git address are never touched.
 - Installing from a local file / arbitrary Git URL remains possible (with an "unverified" warning) so users can still self-host or share privately.
 
 ### Setup instructions per skill (for public release)

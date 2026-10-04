@@ -310,6 +310,9 @@ function Skills({
               </label>
             </div>
             <p className="hint">{s.description}</p>
+            {s.withdrawn_reason && (
+              <p className="error">The catalog withdrew v{s.version}: {s.withdrawn_reason} Uninstall it or look for a newer version.</p>
+            )}
             <p className="hint">Tools: {s.tools.length ? s.tools.join(", ") : "none"}</p>
             {s.integrations.length > 0 && <p className="hint">Integrations: {s.integrations.join(", ")}</p>}
             {Object.entries(s.integration_issues).map(([name, why]) => (

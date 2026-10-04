@@ -48,6 +48,7 @@ from piyo.skills.editor import TEMPLATE, SkillEditor
 from piyo.skills.git_source import GitChoice, stage_git
 from piyo.skills.install import InstallError, SkillInstaller, read_meta
 from piyo.skills.learn import draft_from_chat, refine_from_chat, worth_a_skill
+from piyo.skills.revocation import RevocationStore, check_catalog
 from piyo.skills.runner import ScriptRunner, secret_name
 from piyo.store import (
     AuditStore,
@@ -106,6 +107,7 @@ class SkillOut(BaseModel):
     removable: bool = False  # installed by the user (not built in), so it can be uninstalled
     install_source: str | None = None  # where an installed skill came from
     verified: bool = False  # from the signed catalog; installs from a file never are
+    withdrawn_reason: str | None = None  # the catalog withdrew the installed version, and why
 
 
 class InstallPreviewOut(BaseModel):
@@ -143,6 +145,26 @@ class GitStageOut(BaseModel):
     preview: InstallPreviewOut | None = None
     choose: list[str] = []  # skill folders to pick from; ask again with `folder` and `commit`
     commit: str | None = None
+
+
+class WithdrawnOut(BaseModel):
+    name: str
+    version: str
+    reason: str
+    acknowledged: bool
+
+
+class UpdateOut(BaseModel):
+    name: str
+    version: str
+    installed_version: str
+    adds_permissions: list[str]  # approving the update means approving these
+
+
+class CatalogCheckOut(BaseModel):
+    checked: bool  # False when the catalog could not be reached; `withdrawn` then holds what we already knew
+    withdrawn: list[WithdrawnOut]
+    updates: list[UpdateOut]
 
 
 class CatalogInstallIn(BaseModel):
@@ -604,6 +626,7 @@ def create_app(
     registry = registry or ProviderRegistry()
     skills = skills or SkillRegistry()
     skill_state = SkillState()
+    revocations = RevocationStore()
     skills.disabled |= skill_state.disabled()  # the user's switches survive restarts
     store = store or ConversationStore()
     run_store = RunStore(store)
@@ -1072,6 +1095,7 @@ def create_app(
     @app.get("/api/skills", dependencies=auth)
     def list_skills(provider: str | None = None, model: str | None = None) -> SkillsOut:
         caps = caps_for(provider, model) if provider and model else None
+        withdrawn = revocations.all()
         return SkillsOut(
             skills=[
                 SkillOut(
@@ -1100,6 +1124,12 @@ def create_app(
                     model_issues=model_issues(sk.manifest.requires.model, caps) if caps else [],
                     removable=sk.source == "user",
                     install_source=read_meta(sk.path).get("source") if sk.source == "user" else None,
+                    withdrawn_reason=(
+                        withdrawn[sk.manifest.name].reason
+                        if sk.manifest.name in withdrawn
+                        and withdrawn[sk.manifest.name].version == sk.manifest.version
+                        else None
+                    ),
                 )
                 for sk in skills.list()
             ],
@@ -1208,6 +1238,37 @@ def create_app(
                 for e in found.skills
             ],
         )
+
+    @app.post("/api/catalog/check", dependencies=auth)
+    async def check_catalog_now() -> CatalogCheckOut:
+        """Looks for withdrawn versions and updates among the skills installed from the catalog.
+
+        A newly withdrawn version is switched off here. Offline is not an error: the app calls this at start.
+        """
+
+        def disable(name: str) -> None:
+            skills.disabled = skill_state.set_enabled(name, False)
+
+        def enable(name: str) -> None:
+            skills.disabled = skill_state.set_enabled(name, True)
+
+        try:
+            found = await catalog_client.fetch()
+        except CatalogError:
+            known = revocations.all()
+            return CatalogCheckOut(
+                checked=False, updates=[], withdrawn=[WithdrawnOut(**vars(w)) for w in known.values()]
+            )
+        withdrawn, updates = check_catalog(found, skills.list(), revocations, disable, enable)
+        return CatalogCheckOut(
+            checked=True,
+            withdrawn=[WithdrawnOut(**vars(w)) for w in withdrawn],
+            updates=[UpdateOut(**vars(u)) for u in updates],
+        )
+
+    @app.post("/api/catalog/withdrawn/{name}/acknowledge", dependencies=auth, status_code=204)
+    def acknowledge_withdrawn(name: str) -> None:
+        revocations.acknowledge(name)
 
     @app.post("/api/catalog/install", dependencies=auth)
     async def stage_catalog_skill(body: CatalogInstallIn) -> InstallPreviewOut:

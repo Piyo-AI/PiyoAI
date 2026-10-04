@@ -12,6 +12,7 @@ import { useScheduler } from "./useScheduler";
 import { useSkillOffer } from "./useSkillOffer";
 import { Onboarding } from "./Onboarding";
 import { useRollback, useUpdate } from "./useUpdate";
+import { describeUpdate, useCatalogCheck } from "./useCatalogCheck";
 import { useSetupNeeded } from "./useSetupNeeded";
 import { Tasks } from "./Tasks";
 import { ApprovalCard, ToolChip } from "./Tools";
@@ -196,6 +197,7 @@ export default function App() {
 
   const warnings = useModelWarnings(provider, model, [models, showSettings, busy]);
   const setup = useSetupNeeded([showSettings, wizardSkill]);
+  const catalogCheck = useCatalogCheck([showSettings]);
   const scheduler = useScheduler(open);
   useEffect(() => {
     api.skills().then((r) => setSkillList(r.skills)).catch(() => {});
@@ -357,6 +359,46 @@ export default function App() {
               Set up
             </button>
             <button type="button" className="ghost" onClick={() => setup.dismiss(n.integration)}>
+              Not now
+            </button>
+          </div>
+        </div>
+      ))}
+      {catalogCheck.withdrawn.map((w) => (
+        <div key={w.name} className="banner warn" role="status">
+          <p>
+            Piyo switched off the skill {w.name}: the catalog withdrew v{w.version}. {w.reason}
+          </p>
+          <div className="inline">
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsPage("skills");
+                setShowSettings(true);
+              }}
+            >
+              See skills
+            </button>
+            <button type="button" className="ghost" onClick={() => catalogCheck.acknowledge(w.name)}>
+              OK
+            </button>
+          </div>
+        </div>
+      ))}
+      {catalogCheck.updates.map((u) => (
+        <div key={u.name} className="banner" role="status">
+          <p>{describeUpdate(u)}</p>
+          <div className="inline">
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsPage("skills");
+                setShowSettings(true);
+              }}
+            >
+              Review
+            </button>
+            <button type="button" className="ghost" onClick={() => catalogCheck.dismissUpdate(u)}>
               Not now
             </button>
           </div>
