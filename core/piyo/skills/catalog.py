@@ -28,6 +28,10 @@ class CatalogError(RuntimeError):
     """The catalog could not be reached or read; the message is shown to the user."""
 
 
+class CatalogNotFound(CatalogError):
+    """GitHub says the repository, branch, tag or commit does not exist."""
+
+
 class CatalogEntry(BaseModel):
     name: str
     version: str
@@ -73,7 +77,9 @@ class CatalogClient:
                 client.stream("GET", url) as res,
             ):
                 if res.status_code == 404:
-                    raise CatalogError("The skill catalog was not found. Is the repository public?")
+                    raise CatalogNotFound("The skill catalog was not found. Is the repository public?")
+                if res.status_code == 422 and "/commits/" in url:  # GitHub's answer for an unknown ref
+                    raise CatalogNotFound("That branch, tag or commit was not found.")
                 if res.status_code in (403, 429):
                     raise CatalogError("GitHub is limiting requests right now. Try again in a few minutes.")
                 if res.status_code != 200:

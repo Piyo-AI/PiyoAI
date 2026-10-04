@@ -152,6 +152,36 @@ async def test_a_folder_address_installs_that_folder(installer):
     assert preview.name == "other"
 
 
+async def test_a_branch_with_a_slash_is_found_by_trying_longer_refs(installer):
+    data = archive({"skills/notes/SKILL.md": skill_md(), "skills/other/SKILL.md": skill_md(name="other")})
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        prefix = "https://api.github.com/repos/owner/repo/commits/"
+        if url.startswith(prefix):
+            asked.append(url.removeprefix(prefix))
+            return httpx.Response(200, text=SHA) if url.endswith("/feature/x") else httpx.Response(422)
+        if url == f"https://codeload.github.com/owner/repo/zip/{SHA}":
+            return httpx.Response(200, content=data)
+        return httpx.Response(404)
+
+    preview = await stage_git(
+        client_for(httpx.MockTransport(handler)),
+        installer,
+        "https://github.com/owner/repo/tree/feature/x/skills/other",
+    )
+    assert preview.name == "other" and asked == ["feature", "feature/x"]
+
+
+async def test_an_unknown_ref_says_so(installer):
+    from piyo.skills.catalog import CatalogNotFound
+
+    transport = httpx.MockTransport(lambda request: httpx.Response(422))
+    with pytest.raises(CatalogNotFound, match="branch, tag or commit"):
+        await stage_git(client_for(transport), installer, "https://github.com/owner/repo/tree/nope/a/b")
+
+
 async def test_failures_are_readable(installer, tmp_path):
     with pytest.raises(InstallError, match="no SKILL.md"):
         await stage_git(

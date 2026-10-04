@@ -54,6 +54,7 @@ export default function App() {
   const [learning, setLearning] = useState<{ draft: SkillDraft; name?: string } | null>(null);
   const [learnBusy, setLearnBusy] = useState(false);
   const [learnError, setLearnError] = useState<string | null>(null);
+  const [learnNote, setLearnNote] = useState("");
   const [settingsPage, setSettingsPage] = useState<Page | undefined>(undefined);
   const [wizardSkill, setWizardSkill] = useState<string | null>(null);
   const [showTasks, setShowTasks] = useState(false);
@@ -186,9 +187,10 @@ export default function App() {
       const { offer } = skillOffer;
       const draft =
         offer.kind === "refine" && offer.skill
-          ? await api.refineSkill(offer.skill, conversationId, providerId, model.trim())
+          ? await api.refineSkill(offer.skill, conversationId, providerId, model.trim(), learnNote)
           : await api.draftSkill(conversationId, providerId, model.trim());
       setLearning({ draft, name: offer.kind === "refine" ? offer.skill : undefined });
+      setLearnNote("");
     } catch (e) {
       setLearnError((e as Error).message);
     } finally {
@@ -333,10 +335,24 @@ export default function App() {
       {skillOffer.offer && (
         <div className="banner" role="status">
           <p>
-            {skillOffer.offer.kind === "refine"
-              ? `Want to improve the ${skillOffer.offer.skill} skill from this chat?`
-              : "That took a few steps. Save this as a skill so Piyo can do it again?"}
+            {skillOffer.offer.kind !== "refine"
+              ? "That took a few steps. Save this as a skill so Piyo can do it again?"
+              : skillOffer.offer.reason === "failed"
+                ? `Something went wrong while using the ${skillOffer.offer.skill} skill. Want to fix the skill from this chat?`
+                : skillOffer.offer.reason === "corrected"
+                  ? `It looks like you corrected Piyo. Want to teach the ${skillOffer.offer.skill} skill from it?`
+                  : `Want to improve the ${skillOffer.offer.skill} skill from this chat?`}
           </p>
+          {skillOffer.offer.kind === "refine" && (
+            <input
+              type="text"
+              value={learnNote}
+              maxLength={500}
+              placeholder="What should be different next time? (optional)"
+              aria-label="What should be different next time"
+              onChange={(e) => setLearnNote(e.target.value)}
+            />
+          )}
           {learnError && <p className="error">{learnError}</p>}
           <div className="inline">
             <button type="button" disabled={learnBusy} onClick={startLearning}>
