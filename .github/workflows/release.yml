@@ -1,0 +1,84 @@
+name: Release
+
+# Pushing a tag like v0.1.0 builds the installers on each OS and attaches them to a DRAFT GitHub release.
+# Nothing is published until a maintainer reviews the draft and presses Publish. Builds are unsigned for now
+# (signing is Phase 5 A): Windows SmartScreen and macOS Gatekeeper will warn about them.
+# Run it by hand (Actions > Release > Run workflow) to get the installers as workflow artifacts without a release.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Installer (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows x64, os: windows-latest, bundles: "nsis" }
+          - { name: macOS Apple Silicon, os: macos-latest, bundles: "dmg" }
+          - { name: Linux x64, os: ubuntu-22.04, bundles: "appimage,deb,rpm" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tag matches the version in the files
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python scripts/check_version.py "${{ github.ref_name }}"
+
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev rpm
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: core/uv.lock
+
+      # The packaged core (with uv and Deno), smoke-tested before it goes into an installer.
+      - run: python scripts/build_core.py --smoke
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+        working-directory: apps/desktop
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Build the installer
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: npx tauri
+          args: --config src-tauri/tauri.bundle.json --bundles ${{ matrix.bundles }}
+          # A tag push makes (or adds to) one draft release; a manual run only keeps the files as artifacts.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && format('Piyo AI {0}', github.ref_name) || '' }}
+          releaseDraft: true
+          prerelease: true
+          releaseBody: |
+            Unsigned preview build. Windows and macOS will warn that the app is from an unknown publisher.
+            Piyo downloads its browser (Chromium) the first time you use it.
+
+      - name: Keep the installers as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ runner.os }}
+          path: apps/desktop/src-tauri/target/release/bundle/*/*
+          if-no-files-found: error
