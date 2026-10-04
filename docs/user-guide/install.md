@@ -7,9 +7,9 @@ system.
 
 | System | File | Notes |
 |---|---|---|
-| Windows 10 or 11 (64-bit) | the `.exe` installer | |
-| macOS on Apple Silicon (M1 and later) | the `.dmg` | There is no build for Intel Macs |
-| Linux (64-bit) | `.AppImage`, `.deb` or `.rpm` | Needs `webkit2gtk-4.1`, which current Ubuntu, Debian and Fedora include |
+| Windows 10 (version 22H2) or 11, 64-bit | the `.exe` installer | Needs Microsoft WebView2, which these versions include |
+| macOS 12 (Monterey) or newer, on Apple Silicon (M1 and later) | the `.dmg` | There is no build for Intel Macs |
+| Linux (64-bit): Ubuntu 22.04 or newer, Debian 12, Fedora 39 or newer | `.AppImage`, `.deb` or `.rpm` | Needs `webkit2gtk-4.1`, which these releases include |
 
 Piyo is not code-signed yet, so your system will warn you the first time. That warning is about the missing
 signature, not about something found in the file. Only install files you downloaded from the releases page above.

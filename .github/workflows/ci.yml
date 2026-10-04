@@ -40,7 +40,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Linux builds on the oldest release we support (glibc 2.35), as the installers do.
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0" # the oldest macOS we support; ignored elsewhere
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -50,6 +53,8 @@ jobs:
           cache-dependency-glob: core/uv.lock
       # Builds the PyInstaller bundle, starts it like the app does and checks that it answers.
       - run: uv run --no-project python scripts/build_core.py --smoke
+      # Nothing in the bundle may need a newer glibc (Linux) or macOS than we promise.
+      - run: uv run --no-project python scripts/check_targets.py core/dist/piyo-core
 
   desktop:
     name: Desktop UI (${{ matrix.os }})

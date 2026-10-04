@@ -14,9 +14,34 @@ permissions:
   contents: write
 
 jobs:
+  # The release text is written from the commit subjects since the previous tag (scripts/release_notes.py),
+  # so write them for a reader. A manual run has no tag and no release, so it skips this.
+  notes:
+    name: Release notes
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    outputs:
+      body: ${{ steps.notes.outputs.body }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the whole history and the tags: the notes compare with the previous release
+      - id: notes
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 scripts/release_notes.py "${{ github.ref_name }}" > notes.md
+          cat notes.md
+          { echo "body<<NOTES_EOF"; cat notes.md; echo "NOTES_EOF"; } >> "$GITHUB_OUTPUT"
+
   build:
     name: Installer (${{ matrix.name }})
+    needs: [notes]
+    # `notes` is skipped on a manual run; the builds still go ahead.
+    if: ${{ !cancelled() && (needs.notes.result == 'success' || needs.notes.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0" # the oldest macOS we support; ignored elsewhere
     strategy:
       fail-fast: false
       matrix:
@@ -46,6 +71,7 @@ jobs:
 
       # The packaged core (with uv and Deno), smoke-tested before it goes into an installer.
       - run: uv run --no-project python scripts/build_core.py --smoke
+      - run: uv run --no-project python scripts/check_targets.py core/dist/piyo-core
 
       - uses: actions/setup-node@v4
         with:
@@ -79,9 +105,12 @@ jobs:
           uploadUpdaterJson: true
           releaseDraft: true
           prerelease: false
-          releaseBody: |
-            Unsigned preview build. Windows and macOS will warn that the app is from an unknown publisher.
-            Piyo downloads its browser (Chromium) the first time you use it.
+          releaseBody: ${{ needs.notes.outputs.body }}
+
+      # The desktop program itself (the check reads it, it does not run it).
+      - name: The app needs no newer OS than we support
+        shell: bash
+        run: uv run --no-project python scripts/check_targets.py apps/desktop/src-tauri/target/release/piyo-desktop*
 
       - name: Keep the installers as workflow artifacts
         uses: actions/upload-artifact@v4
