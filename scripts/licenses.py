@@ -5,7 +5,7 @@
 
 What is covered: the Python packages the core needs at run time (from `core/uv.lock`), the Rust crates linked into
 the desktop shell (`cargo tree`), the JavaScript packages in the UI bundle (`npm ls --omit=dev`), and the programs
-shipped beside the core (`uv`, Deno, CPython). Dev and build tools are not shipped and are not checked.
+shipped beside the core (`uv`, Deno, CPython), and the app icon (Noto Emoji, Apache-2.0). Dev and build tools are not shipped and are not checked.
 
 A licence expression passes when at least one of its `OR` alternatives uses only allowed licences. Anything the
 script cannot read (no licence, free text) fails: someone has to look at it and add it to `ALLOWED` or
@@ -228,6 +228,11 @@ def fetch(url: str) -> str:
         return res.read().decode("utf-8", "replace").strip()
 
 
+# The app icon is Noto Emoji's U+1F425 (2D/svg/emoji_u1f425.svg at this commit, Apache-2.0, Copyright 2013 Google, Inc.),
+# turned into the icon set in apps/desktop/src-tauri/icons (see the README there).
+NOTO_COMMIT = "e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e"
+
+
 def program_packages() -> list[Package]:
     pins = json.loads((CORE / "piyo" / "skills" / "helper_tools.json").read_text(encoding="utf-8"))
     uv, deno = pins["uv"]["version"], pins["deno"]["version"]
@@ -240,6 +245,11 @@ def program_packages() -> list[Package]:
             ("LICENSE.md", fetch(f"https://raw.githubusercontent.com/denoland/deno/v{deno}/LICENSE.md")),
         ]),
     ]
+    out.append(
+        Package("asset", "noto-emoji chick (app icon)", NOTO_COMMIT[:7], "Apache-2.0", [
+            ("LICENSE", fetch(f"https://raw.githubusercontent.com/googlefonts/noto-emoji/{NOTO_COMMIT}/2D/svg/LICENSE")),
+        ])
+    )
     py = Path(sys.base_prefix)
     texts = read_texts(py) if (py / "LICENSE.txt").exists() else []
     out.append(Package("program", "cpython", f"{sys.version_info.major}.{sys.version_info.minor}", "PSF-2.0",
@@ -346,7 +356,7 @@ def render(packages: list[Package]) -> str:
         "PACKAGES",
         "=" * 78,
     ]
-    for eco in ("program", "python", "rust", "js"):
+    for eco in ("program", "asset", "python", "rust", "js"):
         group = sorted((p for p in packages if p.ecosystem == eco), key=lambda p: (p.name.lower(), p.version))
         if group:
             lines += ["", f"[{eco}]"] + [f"  {p.name} {p.version}: {p.licence}" for p in group]
@@ -368,6 +378,7 @@ def main() -> int:
         packages += program_packages()
     else:
         packages += [Package("program", "uv", "", "MIT OR Apache-2.0"), Package("program", "deno", "", "MIT")]
+        packages += [Package("asset", "noto-emoji chick (app icon)", "", "Apache-2.0")]
     bad = []
     for p in packages:
         reason = p.problem or acceptable(p.licence)

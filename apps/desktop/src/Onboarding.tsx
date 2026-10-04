@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, ModelInfo, OllamaStatus, openExternal, Provider } from "./api";
+import logo from "./assets/piyo.png";
 
 type Step = "welcome" | "choose" | "cloud" | "local" | "privacy" | "share" | "task";
 
@@ -49,7 +50,7 @@ export function Onboarding({ providers, onChoose, onClose, onChanged }: Props) {
 
         {step === "welcome" && (
           <>
-            <div className="emoji">🐥</div>
+            <img src={logo} alt="" className="hero-logo" />
             <p>
               Piyo is a personal assistant that runs on your computer: it can chat, use tools, browse the web and
               learn skills. Setup takes about a minute: choose a model, check what it can see, and try a first task.

@@ -10,6 +10,7 @@ import { SkillEditor } from "./SkillEditor";
 import { useModelWarnings } from "./useModelWarnings";
 import { useScheduler } from "./useScheduler";
 import { hideSuggestionsThisSession, setSuggestionsEnabled, useSkillSuggestions } from "./skillSuggestions";
+import logo from "./assets/piyo.png";
 import { SkillToast, ToastStack, UpdateToast } from "./Toasts";
 import { useSkillOffer } from "./useSkillOffer";
 import { Onboarding } from "./Onboarding";
@@ -250,7 +251,9 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">🐥 Piyo AI</div>
+        <div className="brand">
+          <img src={logo} alt="" className="logo" /> Piyo AI
+        </div>
         <div className="picker">
           <select value={providerId} onChange={(e) => setProviderId(e.target.value)} aria-label="Provider">
             {providers.map((p) => (
@@ -325,7 +328,7 @@ export default function App() {
         )}
         {!coreError && messages.length === 0 && (
           <div className="empty">
-            <div className="emoji">🐥</div>
+            <img src={logo} alt="" className="hero-logo" />
             <h1>How can I help today?</h1>
             {provider && !provider.has_key && provider.requires_key ? (
               <p>

@@ -103,8 +103,21 @@ textarea:focus {
   flex-wrap: wrap;
 }
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 700;
   font-size: 17px;
+}
+.logo {
+  width: 24px;
+  height: 24px;
+}
+.hero-logo {
+  display: block;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
 }
 .picker {
   display: flex;

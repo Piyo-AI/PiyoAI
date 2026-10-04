@@ -29,7 +29,7 @@ npm run tauri:dev      # full Tauri shell (needs Rust + platform deps); it start
 **Licences.** `python scripts/licenses.py --check` (from `core/` with `uv run`, needs `uv sync`, `npm ci` and `cargo`) fails when a shipped
 dependency has a licence outside `ALLOWED`; without `--check` it rewrites `THIRD-PARTY-NOTICES.txt` (all licence texts), which
 `tauri.bundle.json` ships with `LICENSE`. Regenerate and commit it whenever `uv.lock`, `Cargo.lock`, `package-lock.json` or
-`piyo/skills/helper_tools.json` change. CI job `licenses` runs the check.
+`piyo/skills/helper_tools.json` change, or the app icon changes (it is Noto Emoji's chick, Apache-2.0, see `apps/desktop/src-tauri/icons/README.md`). CI job `licenses` runs the check.
 
 Deno tests (`tests/test_script_runner.py`) run when `deno` is on PATH or `PIYO_DENO` points at it; otherwise they skip. Ruff 0.16.9 runs fine here: run it before pushing, CI fails on E501 and import order.
 
