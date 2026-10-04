@@ -34,6 +34,23 @@ jobs:
       - run: uv run ruff check piyo tests
       - run: uv run pytest -q
 
+  package:
+    name: Packaged core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: core/uv.lock
+      # Builds the PyInstaller bundle, starts it like the app does and checks that it answers.
+      - run: python scripts/build_core.py --smoke
+
   desktop:
     name: Desktop UI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

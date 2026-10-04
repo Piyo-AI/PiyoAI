@@ -15,6 +15,7 @@ import threading
 import uvicorn
 from dotenv import find_dotenv, load_dotenv
 
+from piyo.runtime import frozen, use_shared_browser_cache
 from piyo.server.app import create_app
 
 
@@ -39,9 +40,15 @@ def _exit_when_stdin_closes() -> None:
 
 
 def main() -> None:
-    load_dotenv(find_dotenv(usecwd=True))
-    port = int(os.environ.get("PIYO_PORT") or _free_port())
-    token = os.environ.get("PIYO_TOKEN") or secrets.token_urlsafe(32)
+    use_shared_browser_cache()
+    if frozen():
+        # The shipped core always gets a fresh random port and token: a stray .env in the working directory or
+        # a PIYO_TOKEN in the environment must not be able to fix them.
+        port, token = _free_port(), secrets.token_urlsafe(32)
+    else:
+        load_dotenv(find_dotenv(usecwd=True))
+        port = int(os.environ.get("PIYO_PORT") or _free_port())
+        token = os.environ.get("PIYO_TOKEN") or secrets.token_urlsafe(32)
     print(json.dumps({"port": port, "token": token}), flush=True)
     sys.stdout.flush()
     if os.environ.get("PIYO_EXIT_ON_STDIN_EOF"):

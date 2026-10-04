@@ -47,9 +47,20 @@ until a newer release is confirmed to run.
 | `integrations/` | `google/oauth.py`: `GoogleAuth` (BYO OAuth client, loopback + PKCE sign-in, token refresh, revoke; several accounts: `accounts()`, `resolve(account)`, per-account grants and tokens); tokens only in the keychain, one entry per account (`account_secret`). `google/client.py`: `GoogleClient` (authorised requests, 401 refresh-and-retry, `error_for` maps failures to `GoogleError(kind, message)`, `require` checks the granted scope before a tool calls out) |
 | `server/` | FastAPI + WebSocket API for the app (`app.py`), launcher (`__main__.py`; exits when stdin closes if `PIYO_EXIT_ON_STDIN_EOF` is set) |
 
-Tauri shell (`apps/desktop/src-tauri/src/core.rs`): runs the core as a child (`uv run piyo-core` in dev; release builds
-report that packaging is not done), exposes `core_status` / `restart_core` and the `core-exited` event;
-`api.ts` `resolveConnection` polls it. Debug builds only.
+Tauri shell (`apps/desktop/src-tauri/src/core.rs`): runs the core as a child (`uv run piyo-core` in debug builds; release
+builds run the packaged core from the app's resources, `core/piyo-core[.exe]`), exposes `core_status` / `restart_core` and
+the `core-exited` event; `api.ts` `resolveConnection` polls it.
+
+**Packaged core.** `python scripts/build_core.py [--smoke]` builds `core/dist/piyo-core/` with PyInstaller from
+`core/piyo-core.spec` in its own venv (`core/.venv-build`, `uv sync --no-dev --group build`, so a running dev core that locks
+`.venv` does not matter). `--smoke` starts the result like the app does and checks health, built-in skills, providers (keyring)
+and the Playwright driver; CI runs it on all three OSes (job `package`). `npm run tauri:build` (in `apps/desktop`) bundles that
+folder through `src-tauri/tauri.bundle.json` (kept out of `tauri.conf.json` so `tauri dev` and `cargo check` do not need a
+built core); build the core first. `piyo/runtime.py` is the one place that knows about frozen runs: `frozen()`, `bundle_dir()`,
+`bundled_tool()` (`uv`/Deno in `<bundle>/bin`, then PATH), `use_shared_browser_cache()` (Playwright defaults
+`PLAYWRIGHT_BROWSERS_PATH` to 0 = inside the bundle when frozen; we point it at the per-user cache). A frozen core ignores `.env`,
+`PIYO_PORT` and `PIYO_TOKEN`. Anything that spawns `sys.executable` must handle the frozen case (the Chromium installer does:
+`installer_command()` runs the bundled Node driver). A new dynamically imported package or data file needs an entry in the spec.
 
 Desktop (`apps/desktop/src/`): `App.tsx` (chat shell), `useChat.ts` (chat state + socket events), `api.ts`
 (HTTP/WS client), `Tools.tsx` (tool chips, approval card), `Settings.tsx` (settings window: left sidebar with Providers > Provider list / Add provider, Web search, Folders, Skills, Limits), `GoogleConnection.tsx` (client ID, access checkboxes, Connect/Disconnect), `SetupWizard.tsx` + `Markdown.tsx` (a skill's `SETUP.md` as a step-by-step wizard; `useSetupNeeded.ts` drives the chat banner).

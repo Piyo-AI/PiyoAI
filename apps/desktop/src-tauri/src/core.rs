@@ -2,7 +2,8 @@
 //!
 //! The core prints one JSON line `{"port","token"}` on stdout when it is ready. The webview polls
 //! `core_status` until it is `ready`, so nothing here blocks the main thread. If the core dies on its own the
-//! status becomes `failed` and a `core-exited` event is emitted; `restart_core` starts it again.
+//! status becomes `failed` and a `core-exited` event is emitted; `restart_core` starts it again. Debug builds run
+//! the core from the source tree; release builds run the packaged core from the app's resources.
 //!
 //! The core also exits by itself when its stdin closes (`PIYO_EXIT_ON_STDIN_EOF`), so it does not outlive
 //! the app even if the app is killed.
@@ -16,7 +17,7 @@ use std::thread;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -81,21 +82,36 @@ fn kill_tree(child: &mut Child) {
     let _ = child.kill();
 }
 
-fn core_command() -> Result<Command, String> {
-    if !cfg!(debug_assertions) {
-        return Err("This build does not bundle the Piyo core yet (installers come later). \
-                    Run the app from source with `npm run tauri:dev`."
-            .into());
-    }
-    let core_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../core");
-    let core_dir = core_dir
-        .canonicalize()
-        .map_err(|_| format!("Could not find the core folder at {}.", core_dir.display()))?;
-    let mut cmd = Command::new("uv");
-    cmd.args(["run", "piyo-core"])
-        .current_dir(core_dir)
-        // A fresh random port and token on every launch.
-        .env_remove("PIYO_PORT")
+/// The command that starts the core: `uv run piyo-core` from the source tree in debug builds, the PyInstaller
+/// bundle shipped in the app's resources (`core/piyo-core`, see `tauri.bundle.json`) in release builds.
+fn core_command(app: &AppHandle) -> Result<Command, String> {
+    let mut cmd = if cfg!(debug_assertions) {
+        let core_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../core");
+        let core_dir = core_dir
+            .canonicalize()
+            .map_err(|_| format!("Could not find the core folder at {}.", core_dir.display()))?;
+        let mut cmd = Command::new("uv");
+        cmd.args(["run", "piyo-core"]).current_dir(core_dir);
+        cmd
+    } else {
+        let core_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|e| format!("Could not find the app's resources ({e})."))?
+            .join("core");
+        let exe = core_dir.join(if cfg!(windows) { "piyo-core.exe" } else { "piyo-core" });
+        if !exe.is_file() {
+            return Err(format!(
+                "The Piyo core is missing from this installation ({}). Reinstall the app.",
+                exe.display()
+            ));
+        }
+        let mut cmd = Command::new(exe);
+        cmd.current_dir(core_dir);
+        cmd
+    };
+    // A fresh random port and token on every launch (the packaged core ignores these anyway).
+    cmd.env_remove("PIYO_PORT")
         .env_remove("PIYO_TOKEN")
         .env("PIYO_EXIT_ON_STDIN_EOF", "1")
         .stdin(Stdio::piped())
@@ -113,7 +129,7 @@ pub fn launch(app: AppHandle, state: Arc<CoreState>) {
     let generation = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
     *state.status.lock().unwrap() = Status::Starting;
     thread::spawn(move || {
-        let outcome = run(&state, generation);
+        let outcome = run(&app, &state, generation);
         if let Err(error) = outcome {
             if state.set(generation, Status::Failed { error: error.clone() }) {
                 let _ = app.emit("core-exited", error);
@@ -123,10 +139,14 @@ pub fn launch(app: AppHandle, state: Arc<CoreState>) {
 }
 
 /// Starts the core and blocks until it exits. Returns why, if it was not asked to stop.
-fn run(state: &Arc<CoreState>, generation: u64) -> Result<(), String> {
-    let mut cmd = core_command()?;
+fn run(app: &AppHandle, state: &Arc<CoreState>, generation: u64) -> Result<(), String> {
+    let mut cmd = core_command(app)?;
     let mut child = cmd.spawn().map_err(|e| {
-        format!("Could not start the core with `uv run piyo-core` ({e}). Is uv installed and on your PATH?")
+        if cfg!(debug_assertions) {
+            format!("Could not start the core with `uv run piyo-core` ({e}). Is uv installed and on your PATH?")
+        } else {
+            format!("Could not start the Piyo core ({e}). Reinstall the app, or check that antivirus is not blocking it.")
+        }
     })?;
     let stdout = child.stdout.take().ok_or("The core has no output.")?;
     let stderr = child.stderr.take().ok_or("The core has no error output.")?;

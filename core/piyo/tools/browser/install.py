@@ -13,6 +13,8 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from piyo.runtime import frozen
+
 # Playwright prints a progress bar like `|■■■■    | 40% of 150.2 MiB`, redrawn with carriage returns.
 _PERCENT = re.compile(r"(\d{1,3})%")
 FAILED = "The download did not finish. Check your internet connection and try again."
@@ -36,10 +38,24 @@ async def chromium_installed() -> bool:
         return Path(p.chromium.executable_path).exists()
 
 
+def installer_command() -> tuple[list[str], dict | None]:
+    """The command that downloads Chromium, and its environment (None: inherit ours).
+
+    From source, `python -m playwright` does it. In the packaged core `sys.executable` is the core itself,
+    so the Node driver inside the playwright package is run directly (what `python -m playwright` does).
+    """
+    if not frozen():
+        return [sys.executable, "-m", "playwright", "install", "chromium"], None
+    from playwright._impl._driver import compute_driver_executable, get_driver_env
+
+    node, cli = compute_driver_executable()
+    return [node, cli, "install", "chromium"], get_driver_env()
+
+
 async def run_playwright_install() -> AsyncIterator[bytes]:
+    command, env = installer_command()
     proc = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", "playwright", "install", "chromium",
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        *command, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )  # fmt: skip
     assert proc.stdout is not None
     try:
@@ -68,7 +84,8 @@ class BrowserInstaller:
         if self._status.state != "installing":
             try:
                 found = await self._check()
-            except Exception:
+            except Exception as e:
+                print(f"Could not check for Piyo's browser: {e!r}", file=sys.stderr, flush=True)
                 found = False
             self._status = InstallStatus("installed" if found else "missing")
         return self._status

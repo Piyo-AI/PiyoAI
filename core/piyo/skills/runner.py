@@ -27,6 +27,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from piyo.runtime import bundled_tool
 from piyo.skills.manifest import Skill
 
 MAX_ARGS_BYTES = 100_000
@@ -91,8 +92,9 @@ class ScriptRunner:
     ) -> None:
         self.work_dir = work_dir
         self._get_secret = get_secret
-        self._uv_bin = uv or os.environ.get("PIYO_UV") or shutil.which("uv")
-        self._deno_bin = deno or os.environ.get("PIYO_DENO") or shutil.which("deno")
+        # An explicit path, then the copy shipped with the app, then the user's PATH.
+        self._uv_bin = uv or os.environ.get("PIYO_UV") or bundled_tool("uv") or shutil.which("uv")
+        self._deno_bin = deno or os.environ.get("PIYO_DENO") or bundled_tool("deno") or shutil.which("deno")
 
     # -- public ------------------------------------------------------------------------------
 

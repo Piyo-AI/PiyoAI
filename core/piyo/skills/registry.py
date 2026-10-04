@@ -10,11 +10,14 @@ from pathlib import Path
 
 from piyo.config import skills_dir
 from piyo.models.capabilities import ModelCaps, model_issues
+from piyo.runtime import bundle_dir, frozen
 from piyo.skills.manifest import Skill, SkillError, load_skill_dir
 
 
 def default_builtin_dir() -> Path:
-    # Repo checkout: <repo>/skills next to <repo>/core. Packaged builds will bundle it instead.
+    if frozen():  # the bundle carries a copy (piyo-core.spec)
+        return bundle_dir() / "skills"
+    # Repo checkout: <repo>/skills next to <repo>/core.
     return Path(__file__).resolve().parents[3] / "skills"
 
 
