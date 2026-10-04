@@ -60,12 +60,12 @@ ID.
 them under their own privacy policies, in addition to this one. Piyo sends only the fields above, built by hand
 from the queued events with no Sentry or PostHog library running in the app, and asks both to keep no IP address
 or location: events are anonymous, with no person profile. Their servers still see your IP address while the
-request is made, which is true of any website; the projects will be set to discard it rather than store it before reporting is switched on.
+request is made, which is true of any website; both projects are set to discard it rather than store it.
 Settings > Privacy shows the exact requests that would be sent to each.
 
 **Current status:** if you opt in, usage counts go to PostHog Cloud (US region) and crash reports go to Sentry (US
-region). Before this version is released, this section will give the retention period of both, and the change will
-be in the release notes.
+region). Both services keep what Piyo sends for
+**60 days**, then delete it. If that period changes, it will be changed here and named in the release notes.
 
 ## Your choices
 

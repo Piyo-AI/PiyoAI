@@ -37,7 +37,7 @@ random install ID. It never reports what you typed, your files, addresses, names
 
 Settings > Privacy shows every event waiting to be sent, exactly as it would be sent, and lets you delete them.
 Turning it off deletes them and the install ID. Crash reports go to Sentry and usage counts to PostHog, both cloud
-services. If you turn it on, usage counts are sent to PostHog (US region) and crash reports to Sentry (US region).
+services. If you turn it on, usage counts are sent to PostHog (US region) and crash reports to Sentry (US region). Both keep what is sent for 60 days, then delete it.
 
 ## Clearing things
 
