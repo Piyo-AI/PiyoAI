@@ -151,7 +151,7 @@ After publishing: update the `docs` repo (status of the phase, what shipped) and
   verify any new update and users would have to download a fresh installer by hand. Never change the public key
   in `tauri.conf.json` without a plan for the same reason.
 - **What users see.** Piyo checks for a new version when it starts and shows a toast (bottom right): **Download** runs in
-  the background with progress, then **Install and restart** warns that Piyo will close and start again before it does.
+  the background with progress, then **Install and Restart** warns that Piyo will close and start again before it does.
   Settings > Updates shows the same state. Nothing downloads or installs without the user asking.
 - **Rollback.** Before installing, the app records the version it is leaving. If the new version starts twice without
   ever reaching a healthy state, the next start offers (native dialog, works without the web UI) to reinstall the

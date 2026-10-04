@@ -16,7 +16,7 @@ export function UpdatesPage({ update, busy }: { update: UpdateApi; busy: boolean
       {version && <p>Current version: {version}</p>}
       <p className="hint">
         Piyo checks for a new version when it starts and never downloads or installs one without you asking: Download runs in the
-        background, and Install and restart only happens when you confirm. Every download is verified against Piyo's update key before it
+        background, and Install and Restart only happens when you confirm. Every download is verified against Piyo's update key before it
         is installed; a file that does not match is refused.
       </p>
       {rollback.state !== "idle" && (
@@ -50,7 +50,7 @@ export function UpdatesPage({ update, busy }: { update: UpdateApi; busy: boolean
           )}
           {status.notes && <pre className="hint">{status.notes}</pre>}
           <button onClick={download}>{status.flagged ? "Download anyway" : "Download"}</button>
-          <p className="hint">The download runs in the background. Nothing is installed until you choose Install and restart.</p>
+          <p className="hint">The download runs in the background. Nothing is installed until you choose Install and Restart.</p>
         </>
       )}
       {status.state === "downloading" && (
@@ -74,7 +74,7 @@ export function UpdatesPage({ update, busy }: { update: UpdateApi; busy: boolean
               </button>
             </>
           ) : (
-            <button onClick={() => setConfirming(true)}>Install and restart…</button>
+            <button onClick={() => setConfirming(true)}>Install and Restart</button>
           )}
         </div>
       )}

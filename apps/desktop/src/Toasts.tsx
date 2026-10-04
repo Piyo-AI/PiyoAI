@@ -135,7 +135,7 @@ export function UpdateToast({ update, busy, onDetails }: { update: UpdateApi; bu
       <Toast
         message={`Piyo ${status.version} is ready to install.`}
         actions={[
-          { label: "Install and restart", primary: true, onClick: () => setConfirming(true) },
+          { label: "Install and Restart", primary: true, onClick: () => setConfirming(true) },
           { label: "Later", onClick: close },
         ]}
         onClose={close}

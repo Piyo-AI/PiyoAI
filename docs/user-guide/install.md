@@ -43,7 +43,7 @@ or installs one until you ask:
 
 1. Press **Download**. The update downloads in the background, so you can keep working; the notification (and
    Settings > Updates) shows the progress.
-2. When it is ready, press **Install and restart**. Piyo warns you that it will close and start again, and that
+2. When it is ready, press **Install and Restart**. Piyo warns you that it will close and start again, and that
    anything you are typing is lost, before it does anything. Choose **Not yet** or **Later** to keep going.
 
 Every download is checked against Piyo's update key before it is installed. Settings > Updates shows your version and lets
