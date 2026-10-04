@@ -10,6 +10,7 @@ import { SkillEditor } from "./SkillEditor";
 import { useModelWarnings } from "./useModelWarnings";
 import { useScheduler } from "./useScheduler";
 import { useSkillOffer } from "./useSkillOffer";
+import { useUpdate } from "./useUpdate";
 import { useSetupNeeded } from "./useSetupNeeded";
 import { Tasks } from "./Tasks";
 import { ApprovalCard, ToolChip } from "./Tools";
@@ -178,6 +179,7 @@ export default function App() {
   useEffect(() => {
     api.skills().then((r) => setSkillList(r.skills)).catch(() => {});
   }, [showSettings, learning, busy]);
+  const update = useUpdate(true);
   const skillOffer = useSkillOffer(messages, busy, conversationId, skillList);
   const startLearning = async () => {
     if (!conversationId || !skillOffer.offer) return;
@@ -332,6 +334,21 @@ export default function App() {
           </div>
         </div>
       ))}
+      {update.status.state === "available" && (
+        <div className="banner" role="status">
+          <p>Piyo {update.status.version} is available.</p>
+          <div className="inline">
+            <button
+              onClick={() => {
+                setSettingsPage("updates");
+                setShowSettings(true);
+              }}
+            >
+              See update
+            </button>
+          </div>
+        </div>
+      )}
       {skillOffer.offer && (
         <div className="banner" role="status">
           <p>

@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiStyle, FolderEntry, inTauri, pickFolder, Provider, RunSettings, SkillInfo } from "./api";
 import { BrowserSettings } from "./BrowserSettings";
 import { MemoryPage } from "./MemoryPage";
+import { UpdatesPage } from "./UpdatesPage";
 import { SchedulePage } from "./SchedulePage";
 import { SkillEditor } from "./SkillEditor";
 import { GoogleConnection } from "./GoogleConnection";
@@ -22,7 +23,7 @@ interface Props {
   refreshKey?: unknown;
 }
 
-export type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "browser" | "memory" | "scheduled" | "limits";
+export type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "browser" | "memory" | "scheduled" | "limits" | "updates";
 
 export function Settings({
   providers,
@@ -107,6 +108,9 @@ export function Settings({
             <button className={`nav-item ${page === "limits" ? "active" : ""}`} onClick={() => go("limits")}>
               Limits
             </button>
+            <button className={`nav-item ${page === "updates" ? "active" : ""}`} onClick={() => go("updates")}>
+              Updates
+            </button>
           </nav>
           <div className="settings-content">
             {page === "providers" && (
@@ -144,6 +148,7 @@ export function Settings({
             )}
             {page === "browser" && <BrowserSettings />}
             {page === "memory" && <MemoryPage />}
+            {page === "updates" && <UpdatesPage />}
             {page === "scheduled" && (
               <SchedulePage
                 providerId={providerId}

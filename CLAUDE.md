@@ -54,7 +54,7 @@ the `core-exited` event; `api.ts` `resolveConnection` polls it.
 **Packaged core.** `python scripts/build_core.py [--smoke]` builds `core/dist/piyo-core/` with PyInstaller from
 `core/piyo-core.spec` in its own venv (`core/.venv-build`, `uv sync --no-dev --group build`, so a running dev core that locks
 `.venv` does not matter). `--smoke` starts the result like the app does and checks health, built-in skills, providers (keyring)
-and the Playwright driver; CI runs it on all three OSes (job `package`). `npm run tauri:build` (in `apps/desktop`) bundles that
+and the Playwright driver; CI runs it on all three OSes (job `package`). `npm run tauri:build` (in `apps/desktop`; needs `TAURI_SIGNING_PRIVATE_KEY` set, the updater key, see `docs/phase-5`) bundles that
 folder through `src-tauri/tauri.bundle.json` (kept out of `tauri.conf.json` so `tauri dev` and `cargo check` do not need a
 built core); build the core first. `piyo/runtime.py` is the one place that knows about frozen runs: `frozen()`, `bundle_dir()`,
 `bundled_tool()` (`uv`/Deno in `<bundle>/bin`, which `scripts/bundled_tools.py` fills from `core/bundled-tools.json`: pinned versions and SHA-256 per OS, a mismatch stops the build; upgrade steps in CONTRIBUTING.md; then PATH), `use_shared_browser_cache()` (Playwright defaults
