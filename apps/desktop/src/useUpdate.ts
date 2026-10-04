@@ -7,7 +7,7 @@ export type UpdateState =
   | { state: "idle" }
   | { state: "checking" }
   | { state: "current" }
-  | { state: "available"; version: string; notes: string }
+  | { state: "available"; version: string; notes: string; flagged: boolean }
   | { state: "installing"; percent: number | null }
   | { state: "restart" }
   | { state: "error"; message: string };
@@ -40,7 +40,14 @@ export function useUpdate(auto = false) {
       const { check: checkForUpdate } = await import("@tauri-apps/plugin-updater");
       const update = await checkForUpdate();
       setPending(update);
-      setStatus(update ? { state: "available", version: update.version, notes: update.body ?? "" } : { state: "current" });
+      if (!update) {
+        setStatus({ state: "current" });
+        return;
+      }
+      // A version Piyo rolled back from on this computer: the page warns before it is installed again.
+      const { invoke } = await import("@tauri-apps/api/core");
+      const bad = await invoke<string[]>("bad_versions").catch(() => [] as string[]);
+      setStatus({ state: "available", version: update.version, notes: update.body ?? "", flagged: bad.includes(update.version) });
     } catch (e) {
       setStatus({ state: "error", message: e instanceof Error ? e.message : String(e) });
     }
@@ -78,4 +85,37 @@ export function useUpdate(auto = false) {
   }, [auto, check]);
 
   return { status, check, install, restart };
+}
+
+export interface RollbackProgress {
+  state: "idle" | "downloading" | "installing" | "failed";
+  version: string;
+  percent: number | null;
+  error: string | null;
+}
+
+/**
+ * The shell's rollback of a failed update (rollback.rs): it downloads the previous version by itself, so the app
+ * only shows where it stands. `state` is "idle" when nothing is going on.
+ */
+export function useRollback(): RollbackProgress {
+  const [progress, setProgress] = useState<RollbackProgress>({ state: "idle", version: "", percent: null, error: null });
+  useEffect(() => {
+    if (!inTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    (async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { listen } = await import("@tauri-apps/api/event");
+      const stop = await listen<RollbackProgress>("rollback-progress", (e) => setProgress(e.payload));
+      if (cancelled) return stop();
+      unlisten = stop;
+      setProgress(await invoke<RollbackProgress>("rollback_status")); // a rollback that began before this mounted
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+  return progress;
 }

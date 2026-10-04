@@ -15,6 +15,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(state.clone())
+        .manage(rollback::RollbackProgress::default())
         .setup(|app| {
             let state = app.state::<std::sync::Arc<core::CoreState>>().inner().clone();
             core::launch(app.handle().clone(), state);
@@ -24,7 +25,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![core::core_status,
             core::restart_core,
             rollback::begin_update,
-            rollback::confirm_update_healthy
+            rollback::confirm_update_healthy,
+            rollback::rollback_status,
+            rollback::bad_versions
         ])
         .build(tauri::generate_context!())
         .expect("error while building Piyo AI")

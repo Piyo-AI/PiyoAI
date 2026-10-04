@@ -10,7 +10,7 @@ import { SkillEditor } from "./SkillEditor";
 import { useModelWarnings } from "./useModelWarnings";
 import { useScheduler } from "./useScheduler";
 import { useSkillOffer } from "./useSkillOffer";
-import { useUpdate } from "./useUpdate";
+import { useRollback, useUpdate } from "./useUpdate";
 import { useSetupNeeded } from "./useSetupNeeded";
 import { Tasks } from "./Tasks";
 import { ApprovalCard, ToolChip } from "./Tools";
@@ -180,6 +180,13 @@ export default function App() {
     api.skills().then((r) => setSkillList(r.skills)).catch(() => {});
   }, [showSettings, learning, busy]);
   const update = useUpdate(true);
+  const rollback = useRollback();
+  // A rollback that starts by itself is shown on the Updates page, with its download progress.
+  useEffect(() => {
+    if (rollback.state === "idle") return;
+    setSettingsPage("updates");
+    setShowSettings(true);
+  }, [rollback.state]);
   const skillOffer = useSkillOffer(messages, busy, conversationId, skillList);
   const startLearning = async () => {
     if (!conversationId || !skillOffer.offer) return;
@@ -334,7 +341,7 @@ export default function App() {
           </div>
         </div>
       ))}
-      {update.status.state === "available" && (
+      {update.status.state === "available" && !update.status.flagged && (
         <div className="banner" role="status">
           <p>Piyo {update.status.version} is available.</p>
           <div className="inline">

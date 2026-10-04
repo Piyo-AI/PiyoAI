@@ -1,9 +1,10 @@
-import { useAppVersion, useUpdate } from "./useUpdate";
+import { useAppVersion, useRollback, useUpdate } from "./useUpdate";
 
 /** Settings > Updates: look for a new version, install it on request, restart to finish. */
 export function UpdatesPage() {
   const { status, check, install, restart } = useUpdate(true);
   const version = useAppVersion();
+  const rollback = useRollback();
 
   return (
     <section className="folders">
@@ -13,14 +14,37 @@ export function UpdatesPage() {
         Piyo checks for a new version when it starts and never installs one without you pressing Install. Every
         download is verified against Piyo's update key before it is installed; a file that does not match is refused.
       </p>
+      {rollback.state !== "idle" && (
+        <div className="banner warn" role="status">
+          {rollback.state === "failed" ? (
+            <p className="error">Could not go back to version {rollback.version}: {rollback.error}</p>
+          ) : (
+            <>
+              <p>
+                Going back to version {rollback.version}:{" "}
+                {rollback.state === "installing"
+                  ? "installing, Piyo restarts in a moment…"
+                  : `downloading${rollback.percent !== null ? ` (${rollback.percent}%)` : ""}…`}
+              </p>
+              <progress max={100} value={rollback.percent ?? undefined} />
+            </>
+          )}
+        </div>
+      )}
       {status.state === "unavailable" && <p className="hint">Updates are only available in the installed app.</p>}
       {status.state === "checking" && <p>Checking…</p>}
       {status.state === "current" && <p>Piyo is up to date.</p>}
       {status.state === "available" && (
         <>
           <p>Version {status.version} is available.</p>
+          {status.flagged && (
+            <p className="error">
+              Warning: version {status.version} did not start properly on this computer before, and Piyo went back
+              to an earlier version. Installing it again may fail the same way.
+            </p>
+          )}
           {status.notes && <pre className="hint">{status.notes}</pre>}
-          <button onClick={install}>Install and restart later</button>
+          <button onClick={install}>{status.flagged ? "Install anyway" : "Install and restart later"}</button>
         </>
       )}
       {status.state === "installing" && (

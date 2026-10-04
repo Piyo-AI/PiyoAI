@@ -1039,3 +1039,8 @@ pre.diff {
   font-size: 12px;
   white-space: pre-wrap;
 }
+
+.banner progress {
+  width: 100%;
+  margin-top: 6px;
+}
