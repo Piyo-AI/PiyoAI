@@ -1,8 +1,12 @@
-import { useAppVersion, useRollback, useUpdate } from "./useUpdate";
+import { useState } from "react";
 
-/** Settings > Updates: look for a new version, install it on request, restart to finish. */
-export function UpdatesPage() {
-  const { status, check, install, restart } = useUpdate(true);
+import { RESTART_WARNING } from "./Toasts";
+import { UpdateApi, useAppVersion, useRollback } from "./useUpdate";
+
+/** Settings > Updates: look for a new version, download it (in the background), install it on request. The state is the app's, shared with the toast. */
+export function UpdatesPage({ update, busy }: { update: UpdateApi; busy: boolean }) {
+  const { status, check, download, install, restart } = update;
+  const [confirming, setConfirming] = useState(false);
   const version = useAppVersion();
   const rollback = useRollback();
 
@@ -11,8 +15,9 @@ export function UpdatesPage() {
       <h3>Updates</h3>
       {version && <p>Current version: {version}</p>}
       <p className="hint">
-        Piyo checks for a new version when it starts and never downloads or installs one without you pressing Download and install. Every
-        download is verified against Piyo's update key before it is installed; a file that does not match is refused.
+        Piyo checks for a new version when it starts and never downloads or installs one without you asking: Download runs in the
+        background, and Install and restart only happens when you confirm. Every download is verified against Piyo's update key before it
+        is installed; a file that does not match is refused.
       </p>
       {rollback.state !== "idle" && (
         <div className="banner warn" role="status">
@@ -44,21 +49,36 @@ export function UpdatesPage() {
             </p>
           )}
           {status.notes && <pre className="hint">{status.notes}</pre>}
-          <button onClick={install}>{status.flagged ? "Download and install anyway" : "Download and install"}</button>
+          <button onClick={download}>{status.flagged ? "Download anyway" : "Download"}</button>
+          <p className="hint">The download runs in the background. Nothing is installed until you choose Install and restart.</p>
         </>
       )}
-      {status.state === "installing" && (
+      {status.state === "downloading" && (
         <div role="status">
-          {status.phase === "preparing" && <p>Getting ready: checking the update and contacting the download server…</p>}
-          {status.phase === "downloading" && (
-            <>
-              <p>Downloading the update{status.percent !== null ? ` (${status.percent}%)` : ""}…</p>
-              <progress max={100} value={status.percent ?? undefined} />
-            </>
-          )}
-          {status.phase === "installing" && <p>Download finished. Checking its signature and installing…</p>}
+          <p>Downloading the update{status.percent !== null ? ` (${status.percent}%)` : ""}. You can close Settings and keep working.</p>
+          <progress max={100} value={status.percent ?? undefined} />
         </div>
       )}
+      {status.state === "ready" && (
+        <div role="status">
+          <p>Version {status.version} is downloaded and verified.</p>
+          {confirming ? (
+            <>
+              <p className="hint">
+                {RESTART_WARNING}
+                {busy ? " A chat is still running; it will be stopped." : ""}
+              </p>
+              <button onClick={install}>Restart and install</button>{" "}
+              <button className="ghost" onClick={() => setConfirming(false)}>
+                Not yet
+              </button>
+            </>
+          ) : (
+            <button onClick={() => setConfirming(true)}>Install and restart…</button>
+          )}
+        </div>
+      )}
+      {status.state === "installing" && <p role="status">Checking the signature and installing. Piyo restarts in a moment…</p>}
       {status.state === "restart" && (
         <>
           <p role="status">The update is installed. Restart Piyo to use it.</p>

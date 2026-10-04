@@ -1200,3 +1200,104 @@ pre.telemetry-events {
   font-size: 12px;
   white-space: pre-wrap;
 }
+
+/* Notifications: a stack in the bottom-right corner, newest at the bottom, like VS Code */
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+  animation: toast-in 0.18s ease-out;
+}
+.toast.error {
+  border-color: var(--error);
+}
+.toast-head {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.toast-message {
+  flex: 1;
+  margin: 0;
+}
+.toast-close {
+  padding: 0 4px;
+  line-height: 1.2;
+}
+.toast-detail {
+  margin: 6px 0 0;
+}
+.toast progress {
+  width: 100%;
+  margin-top: 8px;
+}
+.toast input[type="text"] {
+  width: 100%;
+  margin-top: 8px;
+  box-sizing: border-box;
+}
+.toast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+}
+.toast-more {
+  position: relative;
+  margin-left: auto;
+}
+.toast-more summary {
+  cursor: pointer;
+  padding: 0 8px;
+  list-style: none;
+  border-radius: 4px;
+  user-select: none;
+}
+.toast-more summary::-webkit-details-marker {
+  display: none;
+}
+.toast-menu {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 230px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+.toast-menu button {
+  text-align: left;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}

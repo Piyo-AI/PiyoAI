@@ -10,7 +10,9 @@ export type UpdateState =
   | { state: "available"; version: string; notes: string; flagged: boolean }
   // preparing: before any bytes arrive (recording the version, reaching the server); downloading: with a percent when
   // the size is known; installing: the download is done and is being verified and installed
-  | { state: "installing"; phase: "preparing" | "downloading" | "installing"; percent: number | null }
+  | { state: "downloading"; percent: number | null } // the download runs in the background; nothing is installed yet
+  | { state: "ready"; version: string } // downloaded and checked; installing it restarts Piyo
+  | { state: "installing" }
   | { state: "restart" }
   | { state: "error"; message: string };
 
@@ -29,7 +31,8 @@ export function useAppVersion(): string | null {
 /**
  * Checks for a new version and installs it. The updater only accepts a download whose signature matches the
  * public key in tauri.conf.json, so a tampered or wrongly signed file is refused before anything is installed.
- * Nothing is downloaded or installed without the user pressing Download and install. `auto` checks once when the hook mounts.
+ * Nothing is downloaded without the user pressing Download (it then runs in the background) and nothing is installed
+ * until they press Install and restart. `auto` checks once when the hook mounts.
  */
 export function useUpdate(auto = false) {
   const [status, setStatus] = useState<UpdateState>({ state: inTauri() ? "idle" : "unavailable" });
@@ -55,28 +58,41 @@ export function useUpdate(auto = false) {
     }
   }, []);
 
-  const install = useCallback(async () => {
+  /** Downloads the update without installing it; the user installs it when ready (`install`). */
+  const download = useCallback(async () => {
     if (!pending) return;
     let total = 0;
     let done = 0;
-    setStatus({ state: "installing", phase: "preparing", percent: null });
+    setStatus({ state: "downloading", percent: null });
+    try {
+      await pending.download((event) => {
+        if (event.event === "Started") {
+          total = event.data.contentLength ?? 0;
+          setStatus({ state: "downloading", percent: total ? 0 : null });
+        }
+        if (event.event === "Progress") {
+          done += event.data.chunkLength;
+          setStatus({ state: "downloading", percent: total ? Math.min(100, Math.round((done / total) * 100)) : null });
+        }
+      });
+      setStatus({ state: "ready", version: pending.version });
+    } catch (e) {
+      setStatus({ state: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  }, [pending]);
+
+  /** Installs a downloaded update and restarts Piyo. The caller has warned the user. */
+  const install = useCallback(async () => {
+    if (!pending) return;
+    setStatus({ state: "installing" });
     try {
       // Records the version being left, so a new version that never starts can be rolled back (rollback.rs).
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("begin_update", { to: pending.version });
-      await pending.downloadAndInstall((event) => {
-        if (event.event === "Started") {
-          total = event.data.contentLength ?? 0;
-          setStatus({ state: "installing", phase: "downloading", percent: total ? 0 : null });
-        }
-        if (event.event === "Progress") {
-          done += event.data.chunkLength;
-          const percent = total ? Math.min(100, Math.round((done / total) * 100)) : null;
-          setStatus({ state: "installing", phase: "downloading", percent });
-        }
-        if (event.event === "Finished") setStatus({ state: "installing", phase: "installing", percent: 100 });
-      });
+      await pending.install();
       setStatus({ state: "restart" });
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch(); // on Windows the installer has already closed Piyo
     } catch (e) {
       setStatus({ state: "error", message: e instanceof Error ? e.message : String(e) });
     }
@@ -91,7 +107,7 @@ export function useUpdate(auto = false) {
     if (auto) void check();
   }, [auto, check]);
 
-  return { status, check, install, restart };
+  return { status, check, download, install, restart };
 }
 
 export interface RollbackProgress {
@@ -126,3 +142,5 @@ export function useRollback(): RollbackProgress {
   }, []);
   return progress;
 }
+
+export type UpdateApi = ReturnType<typeof useUpdate>;

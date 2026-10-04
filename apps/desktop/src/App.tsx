@@ -9,6 +9,8 @@ import { SetupWizard } from "./SetupWizard";
 import { SkillEditor } from "./SkillEditor";
 import { useModelWarnings } from "./useModelWarnings";
 import { useScheduler } from "./useScheduler";
+import { hideSuggestionsThisSession, setSuggestionsEnabled, useSkillSuggestions } from "./skillSuggestions";
+import { SkillToast, ToastStack, UpdateToast } from "./Toasts";
 import { useSkillOffer } from "./useSkillOffer";
 import { Onboarding } from "./Onboarding";
 import { useRollback, useUpdate } from "./useUpdate";
@@ -210,6 +212,7 @@ export default function App() {
     setSettingsPage("updates");
     setShowSettings(true);
   }, [rollback.state]);
+  const suggestions = useSkillSuggestions();
   const skillOffer = useSkillOffer(messages, busy, conversationId, skillList);
   const startLearning = async () => {
     if (!conversationId || !skillOffer.offer) return;
@@ -222,6 +225,7 @@ export default function App() {
           ? await api.refineSkill(offer.skill, conversationId, providerId, model.trim(), learnNote)
           : await api.draftSkill(conversationId, providerId, model.trim());
       setLearning({ draft, name: offer.kind === "refine" ? offer.skill : undefined });
+      skillOffer.dismiss();
       setLearnNote("");
     } catch (e) {
       setLearnError((e as Error).message);
@@ -404,53 +408,6 @@ export default function App() {
           </div>
         </div>
       ))}
-      {update.status.state === "available" && !update.status.flagged && (
-        <div className="banner" role="status">
-          <p>Piyo {update.status.version} is available.</p>
-          <div className="inline">
-            <button
-              onClick={() => {
-                setSettingsPage("updates");
-                setShowSettings(true);
-              }}
-            >
-              See update
-            </button>
-          </div>
-        </div>
-      )}
-      {skillOffer.offer && (
-        <div className="banner" role="status">
-          <p>
-            {skillOffer.offer.kind !== "refine"
-              ? "That took a few steps. Save this as a skill so Piyo can do it again?"
-              : skillOffer.offer.reason === "failed"
-                ? `Something went wrong while using the ${skillOffer.offer.skill} skill. Want to fix the skill from this chat?`
-                : skillOffer.offer.reason === "corrected"
-                  ? `It looks like you corrected Piyo. Want to teach the ${skillOffer.offer.skill} skill from it?`
-                  : `Want to improve the ${skillOffer.offer.skill} skill from this chat?`}
-          </p>
-          {skillOffer.offer.kind === "refine" && (
-            <input
-              type="text"
-              value={learnNote}
-              maxLength={500}
-              placeholder="What should be different next time? (optional)"
-              aria-label="What should be different next time"
-              onChange={(e) => setLearnNote(e.target.value)}
-            />
-          )}
-          {learnError && <p className="error">{learnError}</p>}
-          <div className="inline">
-            <button type="button" disabled={learnBusy} onClick={startLearning}>
-              {learnBusy ? "Drafting…" : skillOffer.offer.kind === "refine" ? "Suggest changes" : "Draft a skill"}
-            </button>
-            <button type="button" className="ghost" onClick={skillOffer.dismiss}>
-              Not now
-            </button>
-          </div>
-        </div>
-      )}
       {scheduler.events.map((ev) => (
         <div key={ev.id} className={`banner ${ev.kind === "finished" ? "" : "warn"}`} role="status">
           <p>
@@ -494,6 +451,29 @@ export default function App() {
           ))}
         </div>
       )}
+      <ToastStack>
+        <UpdateToast
+          update={update}
+          busy={busy}
+          onDetails={() => {
+            setSettingsPage("updates");
+            setShowSettings(true);
+          }}
+        />
+        {skillOffer.offer && suggestions.visible && (
+          <SkillToast
+            offer={skillOffer.offer}
+            note={learnNote}
+            onNote={setLearnNote}
+            error={learnError}
+            busy={learnBusy}
+            onStart={startLearning}
+            onNotNow={skillOffer.dismiss}
+            onHideSession={hideSuggestionsThisSession}
+            onHideForever={() => setSuggestionsEnabled(false)}
+          />
+        )}
+      </ToastStack>
       <BrowserBar busy={busy} messages={messages} />
       <form className="composer" onSubmit={submit}>
         <textarea
@@ -533,6 +513,8 @@ export default function App() {
       {showTasks && <Tasks conversationId={conversationId} onClose={() => setShowTasks(false)} />}
       {showSettings && (
         <Settings
+          update={update}
+          busy={busy}
           providers={providers}
           providerId={providerId}
           model={model}

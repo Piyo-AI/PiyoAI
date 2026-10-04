@@ -5,6 +5,8 @@ import { Badge } from "./Badge";
 import { BrowserSettings } from "./BrowserSettings";
 import { MemoryPage } from "./MemoryPage";
 import { PrivacyPage } from "./PrivacyPage";
+import { setSuggestionsEnabled, useSkillSuggestions } from "./skillSuggestions";
+import type { UpdateApi } from "./useUpdate";
 import { UpdatesPage } from "./UpdatesPage";
 import { SchedulePage } from "./SchedulePage";
 import { SkillEditor } from "./SkillEditor";
@@ -22,6 +24,8 @@ interface Props {
   onOpenConversation: (id: string) => void;
   onTestSkill: (name: string) => void; // start a chat that exercises a skill
   initialPage?: Page;
+  update: UpdateApi; // shared with the update toast, so a download started there shows here
+  busy: boolean; // a chat is running (the update page warns before restarting)
   /** Changes when the setup wizard opens or closes, so the skill list is read again after setup changed something. */
   refreshKey?: unknown;
 }
@@ -40,6 +44,8 @@ export function Settings({
   onTestSkill,
   initialPage,
   refreshKey,
+  update,
+  busy,
 }: Props) {
   const [page, setPage] = useState<Page>(initialPage ?? "providers");
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +164,7 @@ export function Settings({
             )}
             {page === "browser" && <BrowserSettings />}
             {page === "memory" && <MemoryPage />}
-            {page === "updates" && <UpdatesPage />}
+            {page === "updates" && <UpdatesPage update={update} busy={busy} />}
             {page === "privacy" && <PrivacyPage />}
             {page === "scheduled" && (
               <SchedulePage
@@ -274,6 +280,8 @@ function Skills({
     }
   };
 
+  const suggestions = useSkillSuggestions();
+
   const needs = (s: SkillInfo) => [
     s.model_needs.vision ? "a model that can read images" : "",
     s.model_needs.min_context ? `at least ${s.model_needs.min_context} tokens of context` : "",
@@ -287,6 +295,10 @@ function Skills({
         asks you first. Switching one off hides it from Piyo; it is remembered after a restart.
       </p>
       {error && <p className="error">{error}</p>}
+      <label>
+        <input type="checkbox" checked={suggestions.enabled} onChange={(e) => setSuggestionsEnabled(e.target.checked)} /> Suggest saving or
+        improving a skill after a chat
+      </label>
       <SkillInstall onChange={load} />
       <p>
         <button type="button" className="ghost" onClick={() => setEditing(null)} disabled={editing !== undefined}>
