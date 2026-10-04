@@ -35,7 +35,10 @@ def script_tools(runner: ScriptRunner, skills: SkillRegistry) -> list[Tool]:
 
     def summarize(args: dict) -> str:
         shown = json.dumps(args.get("args") or {}, ensure_ascii=False)[:200]
-        return f"Run the script {args.get('script')} of the skill {args.get('skill')} with {shown}"
+        text = f"Run the script {args.get('script')} of the skill {args.get('skill')} with {shown}"
+        skill = skills.get(str(args.get("skill") or ""))
+        note = runner.download_note(skill, str(args.get("script") or "")) if skill is not None else ""
+        return f"{text}. {note}" if note else text
 
     return [
         Tool(

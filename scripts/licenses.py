@@ -229,7 +229,7 @@ def fetch(url: str) -> str:
 
 
 def program_packages() -> list[Package]:
-    pins = json.loads((CORE / "bundled-tools.json").read_text(encoding="utf-8"))
+    pins = json.loads((CORE / "piyo" / "skills" / "helper_tools.json").read_text(encoding="utf-8"))
     uv, deno = pins["uv"]["version"], pins["deno"]["version"]
     out = [
         Package("program", "uv", uv, "MIT OR Apache-2.0", [

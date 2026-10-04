@@ -27,7 +27,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from piyo.runtime import bundled_tool
+from piyo.skills.helper_tools import HelperError, HelperTools
 from piyo.skills.manifest import Skill
 
 MAX_ARGS_BYTES = 100_000
@@ -89,12 +89,27 @@ class ScriptRunner:
         get_secret: Callable[[str], str | None],
         uv: str | None = None,
         deno: str | None = None,
+        helpers: HelperTools | None = None,
     ) -> None:
         self.work_dir = work_dir
         self._get_secret = get_secret
-        # An explicit path, then the copy shipped with the app, then the user's PATH.
-        self._uv_bin = uv or os.environ.get("PIYO_UV") or bundled_tool("uv") or shutil.which("uv")
-        self._deno_bin = deno or os.environ.get("PIYO_DENO") or bundled_tool("deno") or shutil.which("deno")
+        # uv and Deno: an explicit path, else `helpers` (a path from the environment, our pinned download, the
+        # user's PATH, and the download itself the first time one is needed: piyo/skills/helper_tools.py).
+        self._explicit = {"uv": uv, "deno": deno}
+        self.helpers = helpers or HelperTools()
+
+    async def _program(self, tool: str) -> str:
+        if self._explicit[tool]:
+            return self._explicit[tool]
+        try:
+            return await self.helpers.ensure(tool)
+        except HelperError as e:
+            raise ScriptError(str(e)) from None
+
+    def download_note(self, skill: Skill, script: str) -> str:
+        """What the user should know before this script runs: it starts a download of its runtime."""
+        tool = "uv" if script.endswith(".py") else "deno"
+        return "" if self._explicit[tool] else self.helpers.download_note(tool)
 
     # -- public ------------------------------------------------------------------------------
 
@@ -133,10 +148,7 @@ class ScriptRunner:
     # -- python ------------------------------------------------------------------------------
 
     async def _python(self, skill: Skill, path: Path, runtime: dict, env: dict) -> tuple[list[str], dict]:
-        if not self._uv_bin:
-            raise ScriptError(
-                "Python scripts need uv, which was not found. Install uv (https://docs.astral.sh/uv/)."
-            )
+        uv = await self._program("uv")
         deps = [str(d) for d in runtime.get("dependencies") or []]
         version = f"{sys.version_info.major}.{sys.version_info.minor}"
         key = hashlib.sha256(json.dumps([version, sorted(deps)]).encode()).hexdigest()[:12]
@@ -146,11 +158,11 @@ class ScriptRunner:
             shutil.rmtree(venv, ignore_errors=True)
             venv.parent.mkdir(parents=True, exist_ok=True)
             await self._setup(
-                [self._uv_bin, "venv", "--python", version, str(venv)], "create the environment"
+                [uv, "venv", "--python", version, str(venv)], "create the environment"
             )
             if deps:
                 await self._setup(
-                    [self._uv_bin, "pip", "install", "--python", str(python), *deps],
+                    [uv, "pip", "install", "--python", str(python), *deps],
                     "install the dependencies",
                 )
         if runtime.get("network") is True:
@@ -168,19 +180,16 @@ class ScriptRunner:
         return flags
 
     async def _deno(self, skill: Skill, path: Path, runtime: dict, env: dict) -> tuple[list[str], dict]:
-        if not self._deno_bin:
-            raise ScriptError(
-                "JavaScript and TypeScript scripts need Deno, which was not found. Install Deno (https://deno.com)."
-            )
+        deno = await self._program("deno")
         cache = self.work_dir / "deno-cache"
         cache.mkdir(parents=True, exist_ok=True)
         env = {**env, "DENO_DIR": str(cache), "DENO_NO_UPDATE_CHECK": "1"}
         flags = self.deno_flags(skill, runtime, cache)
         if runtime.get("npm"):
             # Fetch declared packages now (this runs no skill code); the run itself then works from the cache.
-            await self._setup([self._deno_bin, "cache", "--no-lock", str(path)], "download the packages", env)
+            await self._setup([deno, "cache", "--no-lock", str(path)], "download the packages", env)
             flags.append("--cached-only")
-        return [self._deno_bin, "run", *flags, str(path)], env
+        return [deno, "run", *flags, str(path)], env
 
     # -- process handling --------------------------------------------------------------------
 

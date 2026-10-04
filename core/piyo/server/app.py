@@ -50,7 +50,9 @@ from piyo.skills import SkillError, SkillRegistry
 from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
 from piyo.skills.editor import TEMPLATE, SkillEditor
 from piyo.skills.git_source import GitChoice, stage_git
-from piyo.skills.install import InstallError, SkillInstaller, read_meta
+from piyo.skills.helper_tools import NAMES as HELPER_NAMES
+from piyo.skills.helper_tools import HelperTools
+from piyo.skills.install import BADGES, InstallError, SkillInstaller, read_meta
 from piyo.skills.learn import draft_from_chat, refine_from_chat, worth_a_skill
 from piyo.skills.revocation import RevocationStore, check_catalog
 from piyo.skills.runner import ScriptRunner, secret_name
@@ -96,10 +98,19 @@ DEV_ORIGINS = ["http://localhost:1420", "http://127.0.0.1:1420"]
 def allowed_origins() -> list[str]:
     return APP_ORIGINS if frozen() else APP_ORIGINS + DEV_ORIGINS
 
+
 # Tool output shown in the app is a preview; the model still gets the full result.
 UI_OUTPUT_CHARS = 2000
 MAX_SETUP_BYTES = 100_000
 WHY_CHARS = 400  # the model's reason shown on an approval card
+
+
+def _installed_badge(skill) -> str:
+    """The catalog's label for an installed skill: only from a signed-catalog install, never from a file."""
+    if skill.source != "user":
+        return ""
+    meta = read_meta(skill.path)
+    return meta.get("badge", "") if meta.get("verified") is True and meta.get("badge") in BADGES else ""
 
 
 class SkillOut(BaseModel):
@@ -121,6 +132,7 @@ class SkillOut(BaseModel):
     removable: bool = False  # installed by the user (not built in), so it can be uninstalled
     install_source: str | None = None  # where an installed skill came from
     verified: bool = False  # from the signed catalog; installs from a file never are
+    badge: str = ""  # official | verified | community for a catalog install, else empty
     withdrawn_reason: str | None = None  # the catalog withdrew the installed version, and why
 
 
@@ -136,6 +148,7 @@ class InstallPreviewOut(BaseModel):
     installed_version: str | None
     added: list[str]  # permissions the user has to approve now
     verified: bool
+    badge: str = ""
 
 
 class CatalogEntryOut(CatalogEntry):
@@ -449,6 +462,16 @@ class BrowserInstallOut(BaseModel):
     message: str
 
 
+class HelperToolOut(BaseModel):
+    tool: str  # uv | deno
+    version: str
+    state: str  # missing | installed | installing | failed
+    percent: int
+    message: str
+    approx_mb: int
+    path: str | None
+
+
 class BrowserRulesIn(BaseModel):
     allow: list[str] | None = None
     deny: list[str] | None = None
@@ -642,6 +665,7 @@ def create_app(
     google: GoogleAuth | None = None,
     browser: BrowserSession | None = None,
     browser_installer: BrowserInstaller | None = None,
+    helper_tools: HelperTools | None = None,
     memory: MemoryStore | None = None,
     scheduler_store: SchedulerStore | None = None,
     start_scheduler: bool = True,
@@ -653,6 +677,7 @@ def create_app(
     browser_rules = BrowserRules()
     browser = browser or PlaywrightSession(rules=browser_rules)
     installer = browser_installer or BrowserInstaller()
+    helpers = helper_tools or HelperTools()
     ollama = ollama or OllamaSetup()
     onboarding = Onboarding()
     telemetry = telemetry or Telemetry()
@@ -683,7 +708,7 @@ def create_app(
     tools = ToolRegistry(
         core_tools()
         + memory_tools(memory)
-        + script_tools(ScriptRunner(data_dir() / "scripts", get_secret), skills)
+        + script_tools(ScriptRunner(data_dir() / "scripts", get_secret, helpers=helpers), skills)
         + file_tools(folders)
         + web_tools()
         + browser_tools(browser)
@@ -1162,6 +1187,18 @@ def create_app(
             return BrowserInstallOut(**vars(status))
         return BrowserInstallOut(**vars(installer.start()))
 
+    @app.get("/api/helper-tools", dependencies=auth)
+    def get_helper_tools() -> list[HelperToolOut]:
+        """uv and Deno, which run skill scripts and are downloaded the first time a script needs one."""
+        return [HelperToolOut(**vars(helpers.status(tool))) for tool in HELPER_NAMES]
+
+    @app.post("/api/helper-tools/{tool}/install", dependencies=auth)
+    async def start_helper_install(tool: str) -> HelperToolOut:
+        """Download one ahead of time (a script run starts the same download by itself)."""
+        if tool not in HELPER_NAMES:
+            raise HTTPException(status_code=404, detail="unknown program")
+        return HelperToolOut(**vars(helpers.start(tool)))
+
     @app.get("/api/browser/rules", dependencies=auth)
     def get_browser_rules() -> BrowserRulesOut:
         return BrowserRulesOut(**vars(browser_rules.get()))
@@ -1222,6 +1259,7 @@ def create_app(
                     removable=sk.source == "user",
                     install_source=read_meta(sk.path).get("source") if sk.source == "user" else None,
                     verified=sk.source == "user" and read_meta(sk.path).get("verified") is True,
+                    badge=_installed_badge(sk),
                     withdrawn_reason=(
                         withdrawn[sk.manifest.name].reason
                         if sk.manifest.name in withdrawn

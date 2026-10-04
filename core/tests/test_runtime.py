@@ -3,7 +3,6 @@ from pathlib import Path
 
 from piyo import runtime
 from piyo.skills.registry import default_builtin_dir
-from piyo.skills.runner import ScriptRunner
 from piyo.tools.browser.install import installer_command
 
 
@@ -13,29 +12,24 @@ def freeze(monkeypatch, folder: Path) -> None:
     monkeypatch.setattr(sys, "executable", str(folder / "piyo-core.exe"))
 
 
-def test_from_source_nothing_is_bundled():
-    assert not runtime.frozen() and runtime.bundled_tool("uv") is None
+def test_from_source_the_skills_come_from_the_repository():
+    assert not runtime.frozen()
     assert default_builtin_dir().name == "skills" and default_builtin_dir().is_dir()
 
 
-def test_a_bundle_finds_its_skills_and_tools_beside_itself(tmp_path, monkeypatch):
+def test_a_bundle_finds_its_skills_beside_itself(tmp_path, monkeypatch):
     freeze(monkeypatch, tmp_path)
     assert default_builtin_dir() == tmp_path / "skills"
-    assert runtime.bundled_tool("uv") is None  # not shipped: falls back to the user's PATH
-    (tmp_path / "bin").mkdir()
-    name = "uv.exe" if sys.platform == "win32" else "uv"
-    (tmp_path / "bin" / name).write_text("x")
-    assert runtime.bundled_tool("uv") == str(tmp_path / "bin" / name)
 
 
-def test_the_script_runner_prefers_the_shipped_tool_over_the_path(tmp_path, monkeypatch):
-    freeze(monkeypatch, tmp_path)
-    (tmp_path / "bin").mkdir()
-    name = "deno.exe" if sys.platform == "win32" else "deno"
-    (tmp_path / "bin" / name).write_text("x")
-    monkeypatch.delenv("PIYO_DENO", raising=False)
-    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/deno")
-    assert ScriptRunner(tmp_path / "work", lambda _n: None)._deno_bin == str(tmp_path / "bin" / name)
+def test_the_helper_pins_are_found_in_a_bundle_where_the_spec_puts_them():
+    # piyo-core.spec ships this file next to the module that reads it
+    from piyo.skills import helper_tools
+
+    assert helper_tools.PINS.name == "helper_tools.json" and helper_tools.PINS.is_file()
+    assert 'helper_tools.json"), "piyo/skills"' in (Path(__file__).parents[1] / "piyo-core.spec").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_the_browser_installer_runs_the_driver_when_frozen(tmp_path, monkeypatch):

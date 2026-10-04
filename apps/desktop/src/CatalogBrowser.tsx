@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 
 import type { Catalog } from "./api";
-import { BADGES, categoriesOf, categoryLabel, describePermission, filterCatalog, setupNeeds, withdrawn } from "./catalog";
+import { Badge } from "./Badge";
+import { categoriesOf, categoryLabel, describePermission, filterCatalog, setupNeeds, withdrawn } from "./catalog";
 
 /** The skill catalog: search, categories, badges, what each skill asks for and needs, one-click Install. */
 export function CatalogBrowser({
@@ -52,7 +53,6 @@ export function CatalogBrowser({
           const update = e.installed_version !== null && e.installed_version !== e.version;
           const gone = withdrawn(e, e.version);
           const haveGone = e.installed_version !== null ? withdrawn(e, e.installed_version) : null;
-          const badge = BADGES[e.badge] ?? BADGES.community;
           const needs = setupNeeds(e);
           const label = e.builtin
             ? "Built in"
@@ -67,9 +67,7 @@ export function CatalogBrowser({
             <li key={e.name} className={gone ? "withdrawn" : undefined}>
               <div className="row-head">
                 <strong>{e.name}</strong>
-                <span className={`pill badge-${BADGES[e.badge] ? e.badge : "community"}`} title={badge.hint}>
-                  {badge.label}
-                </span>
+                <Badge badge={e.badge} />
                 <span className="hint skill-version">
                   v{e.version}
                   {e.author ? ` · ${e.author}` : ""}

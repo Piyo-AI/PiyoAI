@@ -250,6 +250,8 @@ export interface SkillInfo {
   install_source: string | null;
   /** From the signed catalog. Installs from a file never are. */
   verified: boolean;
+  /** The catalog's label for an installed skill ("official", "verified", "community"); empty when not from the catalog. */
+  badge: string;
   /** Set when the catalog withdrew the installed version: why. */
   withdrawn_reason: string | null;
 }
@@ -399,6 +401,8 @@ export interface InstallPreview {
   /** The permissions the user has to approve now (all of them for a fresh install). */
   added: string[];
   verified: boolean;
+  /** The signed catalog's label ("official", "verified", "community"); empty when `verified` is false. */
+  badge: string;
 }
 
 export interface FolderEntry {

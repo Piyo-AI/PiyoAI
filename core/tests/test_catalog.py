@@ -292,3 +292,41 @@ async def test_a_file_install_is_never_verified(tmp_path, installer):
     assert installer.stage_zip(data).verified is False
     # claiming a signature without the hash check that goes with it counts for nothing
     assert installer.stage_zip(data, verified=True).verified is False
+
+
+async def test_the_catalogs_badge_is_carried_through_the_install(tmp_path, installer):
+    index = {"schema": 2, "skills": [entry(tmp_path, badge="official")]}
+    client = CatalogClient(transport=fake_github(index, repo_zip(FILES)))
+    preview = await client.stage(installer, "notes", SHA)
+    assert preview.verified is True and preview.badge == "official"
+    skill = installer.commit(preview.token, preview.added)
+    assert json.loads((skill.path / ".piyo-install.json").read_text())["badge"] == "official"
+
+
+async def test_a_badge_needs_the_signature_and_a_known_name(tmp_path, installer):
+    from test_skill_install import make_zip
+
+    data = make_zip({"notes/SKILL.md": FILES["SKILL.md"], "notes/SETUP.md": FILES["SETUP.md"]})
+    assert installer.stage_zip(data, badge="official").badge == ""  # a file install has no badge
+    claimed = installer.stage_zip(data, verified=True, badge="official")
+    assert claimed.badge == ""  # nor a claim without the hash check
+    odd = installer.stage_zip(
+        repo_zip(FILES),
+        subpath="skills/notes",
+        expected_sha256=package_hash(package_dir(tmp_path, FILES)),
+        verified=True,
+        badge="platinum",
+    )
+    assert odd.verified is True and odd.badge == "community"  # unknown names fall back
+
+
+def test_api_shows_the_badge_on_the_review_and_on_the_installed_skill(tmp_path):
+    index = {"schema": 2, "skills": [entry(tmp_path, badge="verified")]}
+    client = make_client(tmp_path, index, repo_zip(FILES))
+    staged = client.post("/api/catalog/install", json={"name": "notes", "commit": SHA}, headers=AUTH).json()
+    assert staged["badge"] == "verified"
+    approve = {"token": staged["token"], "approved": staged["added"]}
+    client.post("/api/skills/install", json=approve, headers=AUTH)
+    skills = client.get("/api/skills", headers=AUTH).json()["skills"]
+    installed = next(s for s in skills if s["name"] == "notes")
+    assert installed["badge"] == "verified"

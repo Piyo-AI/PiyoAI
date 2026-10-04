@@ -222,6 +222,7 @@ class CatalogClient:
             + (f", from {repo} @ {ref[:7]}" if src else ""),
             max_zip_bytes=MAX_DOWNLOAD_BYTES,
             verified=self.verify_signature,  # the signed index vouches for this package's hash
+            badge=entry.badge,
         )
         if preview.name != entry.name or preview.version != entry.version:
             installer.cancel(preview.token)

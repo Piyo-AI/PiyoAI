@@ -71,6 +71,10 @@ class Preview:
     installed_version: str | None = None  # set when this is an update
     added: list[str] = field(default_factory=list)  # what the user must approve
     verified: bool = False  # only the signed catalog can be verified; zips never are
+    badge: str = ""  # the catalog's label for it (official, verified, community); only set when `verified`
+
+
+BADGES = ("official", "verified", "community")
 
 
 def read_meta(path: Path) -> dict:
@@ -146,12 +150,14 @@ class SkillInstaller:
         source: str | None = None,
         max_zip_bytes: int = MAX_ZIP_BYTES,
         verified: bool = False,
+        badge: str = "",
     ) -> Preview:
         """Unpack a skill zip and describe it. Nothing is installed.
 
         `subpath` picks one skill folder out of a repo archive (`<repo>-<ref>/<subpath>/...`); the catalog
         uses it. `expected_sha256` is the package hash the catalog promised; a different one refuses the
         install. `verified` is for the catalog client only: the index that promised the hash was signed.
+        `badge` is that index's label for the skill; it only counts together with `verified`.
         """
         if len(data) > max_zip_bytes:
             raise InstallError(f"That file is too large to be a skill (limit {max_zip_bytes // 2**20} MB).")
@@ -171,7 +177,7 @@ class SkillInstaller:
                 self._extract(zf, entries, root, folder / "_pending")
                 digest = hashlib.sha256(data).hexdigest()
                 preview = self._preview(
-                    folder, token, digest, source or f"zip {digest[:12]}", expected_sha256, verified
+                    folder, token, digest, source or f"zip {digest[:12]}", expected_sha256, verified, badge
                 )
             except BaseException:
                 shutil.rmtree(folder, ignore_errors=True)
@@ -267,6 +273,7 @@ class SkillInstaller:
         source: str,
         expected_sha256: str | None,
         verified: bool = False,
+        badge: str = "",
     ) -> Preview:
         pending = folder / "_pending"
         try:
@@ -291,7 +298,8 @@ class SkillInstaller:
             previous = _approved(installed)
             added = [p for p in perms if p not in previous]
         verified = verified and expected_sha256 is not None  # a signature needs the hash check too
-        staged_info = {"name": name, "digest": digest, "source": source, "verified": verified}
+        badge = (badge if badge in BADGES else "community") if verified else ""  # a label needs the signature
+        staged_info = {"name": name, "digest": digest, "source": source, "verified": verified, "badge": badge}
         (folder / "preview.json").write_text(json.dumps(staged_info), encoding="utf-8")
         files = sorted(p.relative_to(final).as_posix() for p in final.rglob("*") if p.is_file())
         return Preview(
@@ -306,6 +314,7 @@ class SkillInstaller:
             installed_version=old_version,
             added=added,
             verified=verified,
+            badge=badge,
         )
 
     # -- commit / remove -------------------------------------------------------------------
@@ -340,6 +349,7 @@ class SkillInstaller:
                     "installed_at": datetime.now(UTC).isoformat(timespec="seconds"),
                     "approved": permissions_of(skill),  # dropped permissions must be re-approved later
                     "verified": info.get("verified") is True,
+                    "badge": info.get("badge") if info.get("verified") is True else "",
                 }
             ),
             encoding="utf-8",

@@ -80,8 +80,10 @@ Add a Brave Search key under Settings > Web search. The web-research skill's Set
   changed after it was signed. Try again later. Piyo refuses an unsigned catalog on purpose.
 - **A skill was switched off by Piyo:** the catalog withdrew that version. The skill's row shows why. You can
   switch it back on or uninstall it.
-- **A script fails:** Python scripts need `uv` and TypeScript ones need Deno; both come with the installed app. If
-  you run Piyo from source, install them.
+- **A script fails:** Python scripts need `uv` and JavaScript or TypeScript ones need Deno. Piyo downloads the one it
+  needs the first time a script runs (about 20 and 45 MB, from GitHub, checked against a fixed fingerprint), so that first
+  run needs an internet connection. If the download fails, check your connection and run the script again. If you already
+  have `uv` or Deno installed, Piyo uses yours and downloads nothing.
 
 ## Updates
 

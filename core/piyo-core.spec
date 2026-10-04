@@ -11,6 +11,8 @@ REPO = CORE.parent
 datas = [
     (str(REPO / "skills"), "skills"),  # built-in skills (piyo.skills.registry.default_builtin_dir)
     (str(CORE / "piyo" / "skills" / "_launch.py"), "piyo/skills"),  # run by a skill's own Python, not by us
+    # uv and Deno are not bundled; this says which release to download on first use, and the hash it must have
+    (str(CORE / "piyo" / "skills" / "helper_tools.json"), "piyo/skills"),
 ]
 binaries = []
 hiddenimports = []
@@ -31,8 +33,13 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    excludes=["tkinter", "pytest", "ruff"],
+    excludes=["tkinter", "pytest", "ruff", "setuptools", "pkg_resources", "pip", "lib2to3"],
 )
+# Parts of the Playwright driver only its trace viewer, recorder, HTML report and TypeScript users read. Piyo runs
+# the server side (pages, clicks, the Chromium installer), so they are dead weight (about 6 MB). Filtered here,
+# after the analysis, because PyInstaller's own Playwright hook adds the driver files too.
+UNUSED_DRIVER = ("/driver/package/lib/vite/", "/driver/package/types/")
+a.datas = [d for d in a.datas if not any(part in "/" + Path(d[0]).as_posix() for part in UNUSED_DRIVER)]
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

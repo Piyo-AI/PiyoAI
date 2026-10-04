@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, Catalog, GitStage, InstallPreview } from "./api";
+import { Badge } from "./Badge";
 import { CatalogBrowser } from "./CatalogBrowser";
-import { describePermission, withdrawn } from "./catalog";
+import { BADGES, describePermission, withdrawn } from "./catalog";
 
 /** True when version `a` is newer than `b` (dotted numbers; anything else compares as text). */
 function newer(a: string, b: string): boolean {
@@ -195,36 +196,32 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
         <div className="install-review" role="dialog" aria-label="Review skill">
           <h4>
             {isUpdate ? "Update" : "Install"} {preview.name} <span className="hint">v{preview.version}</span>
-            {preview.verified ? (
-              <sup className="pill badge-official" title="The catalog's signature and this download's fingerprint both checked out">
-                From the signed catalog
-              </sup>
-            ) : (
-              <sup className="pill unverified">Unverified</sup>
-            )}
+            {preview.verified ? <sup><Badge badge={preview.badge} /></sup> : <sup className="pill unverified">Unverified</sup>}
           </h4>
           <p>{preview.description}</p>
+          {isUpdate && <p className="hint">Replaces v{preview.installed_version}; the old version is kept as a backup.</p>}
+          <div className="permission-box">
+            {preview.added.length === 0 ? (
+              <p className="hint">It asks for nothing you have not already approved.</p>
+            ) : (
+              <>
+                <p>
+                  <strong>{isUpdate ? "New permissions to approve:" : "This skill will be able to:"}</strong>
+                </p>
+                <ul className="permissions">
+                  {preview.added.map((p) => (
+                    <li key={p}>{describePermission(p)}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
           <p className="hint">
             {preview.author ? `By ${preview.author}. ` : ""}From {preview.source}.{" "}
             {preview.verified
-              ? "The catalog's signature checked out and this download matches its fingerprint, so it is the version the catalog maintainers published. Review what it asks for below."
+              ? `${BADGES[preview.badge]?.hint ?? BADGES.community.hint}. The catalog's signature checked out and this download matches its fingerprint, so it is the version the catalog maintainers published.`
               : "This file did not come from the signed catalog, so Piyo cannot vouch for it. Only install skills from people you trust."}
           </p>
-          {isUpdate && <p className="hint">Replaces v{preview.installed_version}; the old version is kept as a backup.</p>}
-          {preview.added.length === 0 ? (
-            <p className="hint">It asks for nothing you have not already approved.</p>
-          ) : (
-            <>
-              <p>
-                <strong>{isUpdate ? "New permissions to approve:" : "This skill will be able to:"}</strong>
-              </p>
-              <ul className="permissions">
-                {preview.added.map((p) => (
-                  <li key={p}>{describePermission(p)}</li>
-                ))}
-              </ul>
-            </>
-          )}
           {isUpdate && preview.permissions.length > preview.added.length && (
             <p className="hint">
               Already approved:{" "}

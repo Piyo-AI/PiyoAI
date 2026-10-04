@@ -139,16 +139,6 @@ async def test_unknown_script_and_oversized_args(tmp_path, work):
         await runner(work).run(skill, "echo.py", {"x": "y" * 200_000})
 
 
-async def test_missing_runtimes_are_explained(tmp_path, work):
-    skill = make_skill(tmp_path, name="two", scripts={"echo.py": ECHO, "go.ts": "console.log('1')"})
-    no_tools = ScriptRunner(work, lambda n: None, uv="", deno="")
-    no_tools._uv_bin = no_tools._deno_bin = None
-    with pytest.raises(ScriptError, match="need uv"):
-        await no_tools.run(skill, "echo.py", {})
-    with pytest.raises(ScriptError, match="need Deno"):
-        await no_tools.run(skill, "go.ts", {})
-
-
 def test_deno_gets_exactly_the_declared_permissions(tmp_path, work):
     plain = make_skill(tmp_path, name="plain", scripts={"a.ts": "1"})
     r = runner(work)

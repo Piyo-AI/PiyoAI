@@ -1,7 +1,7 @@
 """Where things live when the core runs from source and when it is a PyInstaller bundle (the shipped sidecar).
 
-A bundle has no repository around it: built-in skills and data files sit under `sys._MEIPASS`, and helper
-programs (`uv`, Deno) are shipped next to the executable instead of being found on the user's PATH.
+A bundle has no repository around it: built-in skills and data files sit under `sys._MEIPASS`. (`uv` and Deno
+are not in it; they are downloaded on first use, see `piyo/skills/helper_tools.py`.)
 """
 
 from __future__ import annotations
@@ -38,15 +38,3 @@ def use_shared_browser_cache() -> None:
     """
     if frozen() and os.environ.get("PLAYWRIGHT_BROWSERS_PATH") in (None, "", "0"):
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(playwright_cache_dir())
-
-
-def bundled_tool(name: str) -> str | None:
-    """A helper program shipped beside the bundled core, or None (from source, or not shipped)."""
-    if not frozen():
-        return None
-    exe = name + (".exe" if sys.platform == "win32" else "")
-    for folder in (Path(sys.executable).parent, bundle_dir()):
-        candidate = folder / "bin" / exe
-        if candidate.is_file():
-            return str(candidate)
-    return None

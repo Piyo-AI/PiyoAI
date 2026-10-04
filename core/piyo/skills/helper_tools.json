@@ -1,6 +1,7 @@
 {
   "uv": {
     "version": "0.12.23",
+    "approx_mb": 20,
     "url": "https://github.com/astral-sh/uv/releases/download/{version}/{file}",
     "files": {
       "windows-x86_64": {
@@ -27,6 +28,7 @@
   },
   "deno": {
     "version": "2.9.7",
+    "approx_mb": 45,
     "url": "https://github.com/denoland/deno/releases/download/v{version}/{file}",
     "files": {
       "windows-x86_64": {

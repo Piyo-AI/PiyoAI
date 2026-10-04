@@ -43,3 +43,13 @@ def browser_profile_dir() -> Path:
     path = data_dir() / "browser-profile"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def tools_dir() -> Path:
+    """Where the programs Piyo downloads (uv, Deno) live: per machine, not in the roaming profile."""
+    override = os.environ.get("PIYO_DATA_DIR")
+    local = PlatformDirs(APP_NAME, APP_AUTHOR, roaming=False).user_data_dir
+    base = Path(override) if override else Path(local)
+    path = base / "tools"
+    path.mkdir(parents=True, exist_ok=True)
+    return path

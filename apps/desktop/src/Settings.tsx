@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 
 import { api, ApiStyle, FolderEntry, inTauri, pickFolder, Provider, RunSettings, SkillInfo } from "./api";
+import { Badge } from "./Badge";
 import { BrowserSettings } from "./BrowserSettings";
 import { MemoryPage } from "./MemoryPage";
 import { PrivacyPage } from "./PrivacyPage";
@@ -304,6 +305,7 @@ function Skills({
               <strong>
                 {s.name}
                 <sup className={`pill ${s.source}`}>{s.source === "builtin" ? "Built in" : "Yours"}</sup>
+                {s.removable && s.verified && <sup><Badge badge={s.badge} /></sup>}
                 {s.removable && !s.verified && !s.install_source?.startsWith("written") && (
                   <sup className="pill unverified">Unverified</sup>
                 )}
