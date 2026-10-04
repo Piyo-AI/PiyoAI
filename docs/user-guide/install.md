@@ -38,12 +38,25 @@ your computer, and try a first task. You can skip it and come back with Settings
 
 ## Updates
 
-Piyo checks for a new version when it starts and shows a banner. It never downloads or installs one until you press
-**Download and install**. The page then shows each step (getting ready, downloading with a progress bar, checking
-the signature and installing). Every download is checked against Piyo's update key before it is installed.
-Settings > Updates shows your version and lets you check by hand.
+Piyo checks for a new version when it starts and shows a notification in the bottom-right corner. It never downloads
+or installs one until you ask:
+
+1. Press **Download**. The update downloads in the background, so you can keep working; the notification (and
+   Settings > Updates) shows the progress.
+2. When it is ready, press **Install and restart**. Piyo warns you that it will close and start again, and that
+   anything you are typing is lost, before it does anything. Choose **Not yet** or **Later** to keep going.
+
+Every download is checked against Piyo's update key before it is installed. Settings > Updates shows your version and lets
+you check by hand.
 
 If a new version does not start properly twice in a row, the third start offers to go back to the version you had.
+
+## Keep Piyo running in the background
+
+Scheduled jobs only run while Piyo is running. In Settings > Scheduled you can tick **Keep Piyo running in the tray when
+I close the window**, so closing the window hides it (use the tray icon's **Open Piyo** to bring it back and **Quit Piyo**
+to really exit), and **Start Piyo hidden in the tray when I sign in**. Both are off until you turn them on. Piyo asks the
+system for permission to show notifications the first time you create a job.
 
 ## Where your data is
 

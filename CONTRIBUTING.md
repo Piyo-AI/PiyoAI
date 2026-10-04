@@ -43,6 +43,8 @@ or one at a time: `uv run ruff check piyo tests` and `uv run pytest -q` in `core
   is not obvious.
 - One topic per pull request. Fill in the template; say how you tested it and on which OS.
 - Update `PLAN.md`'s Decision Log if you change a decision, and the README's "What works today" if behaviour changes.
+- Commit subjects become the release notes (`feat:`, `fix:` and `security:` prefixes group them), so write them for a
+  reader. How releases are made: [RELEASE.md](RELEASE.md).
 
 ## Adding a provider preset
 
