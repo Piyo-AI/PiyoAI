@@ -8,7 +8,9 @@ export type UpdateState =
   | { state: "checking" }
   | { state: "current" }
   | { state: "available"; version: string; notes: string; flagged: boolean }
-  | { state: "installing"; percent: number | null }
+  // preparing: before any bytes arrive (recording the version, reaching the server); downloading: with a percent when
+  // the size is known; installing: the download is done and is being verified and installed
+  | { state: "installing"; phase: "preparing" | "downloading" | "installing"; percent: number | null }
   | { state: "restart" }
   | { state: "error"; message: string };
 
@@ -27,7 +29,7 @@ export function useAppVersion(): string | null {
 /**
  * Checks for a new version and installs it. The updater only accepts a download whose signature matches the
  * public key in tauri.conf.json, so a tampered or wrongly signed file is refused before anything is installed.
- * Nothing is installed without the user pressing Install. `auto` checks once when the hook mounts.
+ * Nothing is downloaded or installed without the user pressing Download and install. `auto` checks once when the hook mounts.
  */
 export function useUpdate(auto = false) {
   const [status, setStatus] = useState<UpdateState>({ state: inTauri() ? "idle" : "unavailable" });
@@ -57,17 +59,22 @@ export function useUpdate(auto = false) {
     if (!pending) return;
     let total = 0;
     let done = 0;
-    setStatus({ state: "installing", percent: null });
+    setStatus({ state: "installing", phase: "preparing", percent: null });
     try {
       // Records the version being left, so a new version that never starts can be rolled back (rollback.rs).
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("begin_update", { to: pending.version });
       await pending.downloadAndInstall((event) => {
-        if (event.event === "Started") total = event.data.contentLength ?? 0;
+        if (event.event === "Started") {
+          total = event.data.contentLength ?? 0;
+          setStatus({ state: "installing", phase: "downloading", percent: total ? 0 : null });
+        }
         if (event.event === "Progress") {
           done += event.data.chunkLength;
-          setStatus({ state: "installing", percent: total ? Math.min(100, Math.round((done / total) * 100)) : null });
+          const percent = total ? Math.min(100, Math.round((done / total) * 100)) : null;
+          setStatus({ state: "installing", phase: "downloading", percent });
         }
+        if (event.event === "Finished") setStatus({ state: "installing", phase: "installing", percent: 100 });
       });
       setStatus({ state: "restart" });
     } catch (e) {

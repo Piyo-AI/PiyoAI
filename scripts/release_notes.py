@@ -6,8 +6,9 @@
 Needs the tags in the clone (the release workflow fetches the whole history). Commit subjects are the
 changelog, so write them for a reader: "Ask before memory.remember once a run has read outside text", not
 "fix stuff". A subject may start with `feat:`, `fix:` or `security:` to be listed under that heading; lines
-beginning with `- ` in the body are listed under their commit. The notes the release workflow adds on top
-(unsigned build, browser download) come from `FOOTER` below.
+beginning with `- ` in the body are listed under their commit (a bullet wrapped onto indented lines below is joined).
+A subject starting `chore:`, `ci:`, `docs:`, `test:` or `build:` is left out, it is not news for a user. The notes
+the release workflow adds on top (unsigned build, browser download) come from `FOOTER` below.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ Piyo downloads its browser (Chromium) the first time you use it.
 HEADINGS = {"security": "Security", "feat": "New", "fix": "Fixed"}
 ORDER = ["Security", "New", "Fixed", "Changes"]
 PREFIX = re.compile(r"^(\w+)(?:\([^)]*\))?!?:\s+(.*)$")
-SKIP = re.compile(r"^(Merge |Revert \"Merge |Version \d)")
+SKIP = re.compile(r"^(Merge |Revert \"Merge |Version \d|(chore|ci|docs|test|build)(\([^)]*\))?!?: )", re.I)
 
 
 def git(*args: str) -> str:
@@ -53,9 +54,24 @@ def commits(tag: str, previous: str | None) -> list[tuple[str, list[str]]]:
         subject, _, body = entry.strip().partition("\x00")
         if not subject or SKIP.match(subject):
             continue
-        bullets = [line.strip()[2:].strip() for line in body.splitlines() if line.strip().startswith("- ")]
-        found.append((subject.strip(), bullets))
+        found.append((subject.strip(), bullets_of(body)))
     return found
+
+
+def bullets_of(body: str) -> list[str]:
+    """The `- ` items of a commit body; an item wrapped onto indented lines below it is one bullet."""
+    bullets: list[str] = []
+    wrapped = False  # the previous line belongs to the last bullet
+    for line in body.splitlines():
+        text = line.strip()
+        if text.startswith("- "):
+            bullets.append(text[2:].strip())
+            wrapped = True
+        elif text and wrapped and line[:1].isspace():
+            bullets[-1] += " " + text
+        else:
+            wrapped = False
+    return bullets
 
 
 def render(tag: str, previous: str | None, entries: list[tuple[str, list[str]]], repo: str = "") -> str:

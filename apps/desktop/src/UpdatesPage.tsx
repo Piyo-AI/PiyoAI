@@ -11,7 +11,7 @@ export function UpdatesPage() {
       <h3>Updates</h3>
       {version && <p>Current version: {version}</p>}
       <p className="hint">
-        Piyo checks for a new version when it starts and never installs one without you pressing Install. Every
+        Piyo checks for a new version when it starts and never downloads or installs one without you pressing Download and install. Every
         download is verified against Piyo's update key before it is installed; a file that does not match is refused.
       </p>
       {rollback.state !== "idle" && (
@@ -44,11 +44,20 @@ export function UpdatesPage() {
             </p>
           )}
           {status.notes && <pre className="hint">{status.notes}</pre>}
-          <button onClick={install}>{status.flagged ? "Install anyway" : "Install and restart later"}</button>
+          <button onClick={install}>{status.flagged ? "Download and install anyway" : "Download and install"}</button>
         </>
       )}
       {status.state === "installing" && (
-        <p role="status">Downloading and installing{status.percent !== null ? ` (${status.percent}%)` : ""}…</p>
+        <div role="status">
+          {status.phase === "preparing" && <p>Getting ready: checking the update and contacting the download server…</p>}
+          {status.phase === "downloading" && (
+            <>
+              <p>Downloading the update{status.percent !== null ? ` (${status.percent}%)` : ""}…</p>
+              <progress max={100} value={status.percent ?? undefined} />
+            </>
+          )}
+          {status.phase === "installing" && <p>Download finished. Checking its signature and installing…</p>}
+        </div>
       )}
       {status.state === "restart" && (
         <>

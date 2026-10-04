@@ -53,3 +53,22 @@ def test_reads_commits_between_tags(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert notes.previous_tag("v0.2.0") == "v0.1.0"
     assert notes.commits("v0.2.0", "v0.1.0") == [("Add search", ["searches names", "searches tags"])]
+
+
+def test_a_wrapped_bullet_is_one_bullet():
+    body = (
+        "Some text\n\n- The signed catalog's badge is kept with a catalog install\n  and shown on the card.\n"
+        "- A second one\n\nA closing paragraph\n  that is indented but not a bullet\n"
+    )
+    assert notes.bullets_of(body) == [
+        "The signed catalog's badge is kept with a catalog install and shown on the card.",
+        "A second one",
+    ]
+
+
+def test_housekeeping_commits_are_left_out():
+    housekeeping = ("chore: bump a lock", "ci: fix it", "Docs: reword", "test(core): more", "Version 0.2.0")
+    for subject in housekeeping:
+        assert notes.SKIP.match(subject), subject
+    for subject in ("Fix the updater", "fix: the updater", "feat: badges", "Documentation page for skills"):
+        assert not notes.SKIP.match(subject), subject

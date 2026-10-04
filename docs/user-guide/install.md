@@ -38,9 +38,10 @@ your computer, and try a first task. You can skip it and come back with Settings
 
 ## Updates
 
-Piyo checks for a new version when it starts and shows a banner. It never installs one until you press
-**Install**. Every download is checked against Piyo's update key before it is installed. Settings > Updates shows
-your version and lets you check by hand.
+Piyo checks for a new version when it starts and shows a banner. It never downloads or installs one until you press
+**Download and install**. The page then shows each step (getting ready, downloading with a progress bar, checking
+the signature and installing). Every download is checked against Piyo's update key before it is installed.
+Settings > Updates shows your version and lets you check by hand.
 
 If a new version does not start properly twice in a row, the third start offers to go back to the version you had.
 
