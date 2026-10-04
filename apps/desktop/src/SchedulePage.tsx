@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 
 import { api, SchedulerJob, SchedulerPending } from "./api";
+import { BackgroundState, getBackground, requestNotifyPermission, setKeepRunning, setStartAtLogin } from "./native";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 type Kind = "once" | "daily" | "weekdays" | "weekly" | "every";
@@ -47,6 +48,21 @@ export function SchedulePage({
   const [onceAt, setOnceAt] = useState(defaultOnce);
   const [days, setDays] = useState<number[]>([0]);
   const [minutes, setMinutes] = useState(60);
+  const [background, setBackground] = useState<BackgroundState | null>(null);
+
+  useEffect(() => {
+    getBackground().then(setBackground).catch(() => {});
+  }, []);
+
+  const changeBackground = async (fn: () => Promise<void>) => {
+    setError(null);
+    try {
+      await fn();
+      setBackground(await getBackground());
+    } catch (e) {
+      setError((e as Error).message ?? String(e));
+    }
+  };
 
   const load = () =>
     Promise.all([api.schedulerJobs(), api.schedulerPending()])
@@ -91,9 +107,7 @@ export function SchedulePage({
       setError("Pick a model in the chat first; scheduled runs use the model you have selected.");
       return;
     }
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
+    requestNotifyPermission().catch(() => {});
     const ok = await attempt(() => api.createJob({ title, prompt, rule: rule(), provider: providerId, model }));
     if (ok) {
       setTitle("");
@@ -108,10 +122,31 @@ export function SchedulePage({
       <h3>Scheduled</h3>
       <p className="hint">
         Reminders and routines Piyo runs on its own, for example "every morning at 8, give me my brief". They only run
-        while Piyo is open; if it was closed at the time, a job that is not too late runs when you start it. A
+        while Piyo is running (see below to keep it in the tray); if it was closed at the time, a job that is not too late runs when you start it. A
         scheduled run never sends, changes or deletes anything by itself: those actions wait below for your approval.
       </p>
       {error && <p className="error">{error}</p>}
+      {background && (
+        <div className="memory-add">
+          <label>
+            <input
+              type="checkbox"
+              checked={background.keepRunning}
+              onChange={(e) => changeBackground(() => setKeepRunning(e.target.checked))}
+            />{" "}
+            Keep Piyo running in the tray when I close the window, so jobs still run
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={background.startAtLogin}
+              disabled={!background.keepRunning}
+              onChange={(e) => changeBackground(() => setStartAtLogin(e.target.checked))}
+            />{" "}
+            Start Piyo hidden in the tray when I sign in
+          </label>
+        </div>
+      )}
       {note && <p className="hint">{note}</p>}
 
       {pending.length > 0 && (

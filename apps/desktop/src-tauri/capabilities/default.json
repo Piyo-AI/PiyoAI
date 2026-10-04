@@ -11,6 +11,10 @@
     "opener:allow-open-url",
     "opener:allow-default-urls",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "notification:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

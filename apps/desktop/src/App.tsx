@@ -198,7 +198,7 @@ export default function App() {
   const warnings = useModelWarnings(provider, model, [models, showSettings, busy]);
   const setup = useSetupNeeded([showSettings, wizardSkill]);
   const catalogCheck = useCatalogCheck([showSettings]);
-  const scheduler = useScheduler(open);
+  const scheduler = useScheduler();
   useEffect(() => {
     api.skills().then((r) => setSkillList(r.skills)).catch(() => {});
   }, [showSettings, learning, busy]);
