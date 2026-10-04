@@ -1,6 +1,6 @@
 [project]
 name = "piyo"
-version = "0.2.0"
+version = "0.3.0"
 description = "Piyo AI core: agent, models, skills and local API for the desktop app"
 readme = "README.md"
 license = "MIT"
