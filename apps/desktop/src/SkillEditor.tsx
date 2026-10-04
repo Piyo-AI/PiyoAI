@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api, SkillCheck, SkillDraft, SkillVersion } from "./api";
-import { describePermission } from "./SkillInstall";
+import { describePermission } from "./catalog";
 
 /** Writes a new skill (`name` undefined) or edits one the user installed or wrote. */
 export function SkillEditor({

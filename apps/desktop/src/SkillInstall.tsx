@@ -1,27 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, Catalog, GitStage, InstallPreview } from "./api";
-
-/** "tool:gmail.send" -> a sentence the user can judge. */
-export function describePermission(label: string): string {
-  const i = label.indexOf(":");
-  const kind = label.slice(0, i);
-  const value = label.slice(i + 1);
-  switch (kind) {
-    case "tool":
-      return `Use the ${value} tool`;
-    case "integration":
-      return `Use your ${value} connection`;
-    case "secret":
-      return `Read the stored secret ${value}`;
-    case "script":
-      return `Run its own script ${value}`;
-    case "runtime":
-      return `Run code with ${value}`;
-    default:
-      return label;
-  }
-}
+import { CatalogBrowser } from "./CatalogBrowser";
+import { describePermission, withdrawn } from "./catalog";
 
 /** True when version `a` is newer than `b` (dotted numbers; anything else compares as text). */
 function newer(a: string, b: string): boolean {
@@ -54,7 +35,9 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
       .catalog()
       .then((c) => {
         setCatalog(c);
-        setUpdates(c.skills.filter((e) => !e.builtin && e.installed_version !== null && newer(e.version, e.installed_version)));
+        setUpdates(c.skills.filter(
+            (e) => !e.builtin && e.installed_version !== null && newer(e.version, e.installed_version) && !withdrawn(e, e.version),
+          ));
       })
       .catch(() => {});
   }, []);
@@ -207,40 +190,7 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
         </div>
       )}
       {error && <p className="error">{error}</p>}
-      {browsing && catalog && !preview && (
-        <ul className="providers catalog">
-          {catalog.skills.length === 0 && <li className="hint">The catalog has no skills yet.</li>}
-          {catalog.skills.map((e) => {
-            const update = e.installed_version !== null && e.installed_version !== e.version;
-            return (
-              <li key={e.name}>
-                <div className="row-head">
-                  <strong>{e.name}</strong>
-                  <span className="hint skill-version">
-                    v{e.version}
-                    {e.author ? ` · ${e.author}` : ""}
-                    {e.license ? ` · ${e.license}` : ""}
-                  </span>
-                  <button
-                    type="button"
-                    style={{ marginLeft: "auto" }}
-                    className={e.installed_version && !update ? "ghost" : undefined}
-                    disabled={busy || e.builtin || (e.installed_version !== null && !update)}
-                    onClick={() => review(e.name)}
-                  >
-                    {e.builtin ? "Built in" : update ? `Update from v${e.installed_version}` : e.installed_version ? "Installed" : "Install"}
-                  </button>
-                </div>
-                <p className="hint">{e.description}</p>
-                <p className="hint">Asks for: {e.permissions.map(describePermission).join("; ") || "nothing"}</p>
-              </li>
-            );
-          })}
-          {catalog.skipped > 0 && (
-            <li className="hint">{catalog.skipped} skill(s) need a newer version of Piyo and are not shown.</li>
-          )}
-        </ul>
-      )}
+      {browsing && catalog && !preview && <CatalogBrowser catalog={catalog} busy={busy} onReview={review} />}
       {preview && (
         <div className="install-review" role="dialog" aria-label="Review skill">
           <h4>

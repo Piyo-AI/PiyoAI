@@ -1094,3 +1094,82 @@ pre.diff {
 .onboarding .ok {
   color: var(--ok);
 }
+
+.catalog-search {
+  width: 100%;
+  margin: 8px 0;
+}
+
+.catalog-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chip {
+  padding: 2px 10px;
+  border-radius: 99px;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.chip.on {
+  background: var(--user);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.catalog-asks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 4px 0;
+}
+
+.catalog-asks .perm {
+  padding: 1px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.pill.badge-official {
+  background: var(--user);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.pill.badge-verified {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.catalog li.withdrawn {
+  opacity: 0.8;
+}
+
+.setup-none {
+  color: var(--muted);
+}
+
+.setup-some,
+.setup-more {
+  color: var(--text);
+}
+
+.catalog .row-head {
+  align-items: center;
+}
+
+.catalog .row-head .pill {
+  align-self: center;
+  vertical-align: baseline;
+  font-size: 11px;
+  padding: 1px 8px;
+  line-height: 1.4;
+}

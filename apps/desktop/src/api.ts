@@ -285,6 +285,15 @@ export interface CatalogEntry {
   license: string | null;
   permissions: string[];
   integrations: string[];
+  secrets: string[];
+  /** One of the catalog's categories; a newer catalog may use names this app does not know. */
+  category: string;
+  /** Set by the catalog team: "official", "verified" or "community". */
+  badge: string;
+  /** Versions the catalog has withdrawn ("*" is every version) and why. */
+  revoked: { version: string; reason: string }[];
+  /** Set when the package lives in someone else's GitHub repository. */
+  source: { url: string; commit: string } | null;
   /** The version you have installed, if any. */
   installed_version: string | null;
   /** A built-in skill has this name. */
