@@ -17,6 +17,7 @@ from dotenv import find_dotenv, load_dotenv
 
 from piyo.runtime import frozen, use_shared_browser_cache
 from piyo.server.app import create_app
+from piyo.telemetry import Telemetry, install_crash_hooks
 
 
 def _free_port() -> int:
@@ -49,6 +50,7 @@ def main() -> None:
         load_dotenv(find_dotenv(usecwd=True))
         port = int(os.environ.get("PIYO_PORT") or _free_port())
         token = os.environ.get("PIYO_TOKEN") or secrets.token_urlsafe(32)
+    install_crash_hooks(Telemetry())
     print(json.dumps({"port": port, "token": token}), flush=True)
     sys.stdout.flush()
     if os.environ.get("PIYO_EXIT_ON_STDIN_EOF"):

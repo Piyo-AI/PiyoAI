@@ -111,6 +111,23 @@ def backup_skill(path: Path, backups_root: Path, reason: str, move: bool = False
     return dest
 
 
+_DEVICE_NAMES = {
+    "con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))
+}
+
+
+def _odd_name(part: str) -> bool:
+    """A path part Windows treats specially: a drive or stream (`:`), control characters, a trailing dot
+    or space, or a device name (`CON`, `NUL.txt`). None belongs in a skill, and `:` would let a zip
+    write an NTFS alternate data stream."""
+    return (
+        ":" in part
+        or any(ord(c) < 32 for c in part)
+        or part.endswith((" ", "."))
+        or part.split(".")[0].lower() in _DEVICE_NAMES
+    )
+
+
 class SkillInstaller:
     def __init__(self, user_dir: Path, work_dir: Path, builtin_names: set[str] | None = None) -> None:
         self.user_dir = user_dir
@@ -175,7 +192,7 @@ class SkillInstaller:
         for info in files:
             name = info.filename
             parts = PurePosixPath(name.replace("\\", "/")).parts
-            if name.startswith(("/", "\\")) or ".." in parts or (parts and ":" in parts[0]):
+            if name.startswith(("/", "\\")) or ".." in parts or any(_odd_name(part) for part in parts):
                 raise InstallError(f"Unsafe path in the zip: {name!r}.")
             if stat.S_ISLNK(info.external_attr >> 16):
                 raise InstallError(f"Links are not allowed in a skill ({name!r}).")

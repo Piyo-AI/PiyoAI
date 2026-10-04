@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import re
 import secrets
 import shutil
@@ -10,6 +12,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
 from piyo import __version__
@@ -60,6 +63,7 @@ from piyo.store import (
     complete_tool_calls,
 )
 from piyo.store.memory import SENSITIVE_CATEGORIES, MemoryRefused, MemoryStore
+from piyo.telemetry import Telemetry, read_shell_crashes
 from piyo.tools import RunContext, ToolRegistry, core_tools
 from piyo.tools import search as search_mod
 from piyo.tools.browser import BrowserInstaller, BrowserSession, PlaywrightSession, browser_tools
@@ -74,6 +78,14 @@ from piyo.tools.search import search_tools
 from piyo.tools.weather import weather_tools
 from piyo.tools.web import web_tools
 
+TELEMETRY_SEND_EVERY_S = 15 * 60
+def same_secret(given: str, expected: str) -> bool:
+    """Constant-time comparison that copes with non-ASCII input (`compare_digest` raises on such `str`)."""
+    return secrets.compare_digest(given.encode("utf-8", "replace"), expected.encode("utf-8"))
+
+
+# Exceptions from these packages are provider or network trouble, already explained to the user.
+PROVIDER_ERROR_MODULES = {"openai", "anthropic", "httpx", "httpcore", "ssl", "socket"}
 # Tauri webview origins (Windows/Linux, macOS) and the Vite dev server.
 ALLOWED_ORIGINS = [
     "http://tauri.localhost",
@@ -400,6 +412,23 @@ class OnboardingIO(BaseModel):
     done: bool
 
 
+class TelemetryIn(BaseModel):
+    enabled: bool
+
+
+class TelemetryOut(BaseModel):
+    choice: str  # unset | on | off
+    install_id: str | None
+    endpoint_configured: bool
+    events: list[dict]  # what waits in the queue
+    sends: list[dict]  # the requests a send would make: {service, configured, payload}
+
+
+class UiErrorIn(BaseModel):
+    name: str = ""
+    frames: list[str] = []
+
+
 class OllamaOut(BaseModel):
     state: str  # missing | no_models | ready | pulling | failed
     models: list[str]
@@ -616,6 +645,7 @@ def create_app(
     start_scheduler: bool = True,
     catalog: CatalogClient | None = None,
     ollama: OllamaSetup | None = None,
+    telemetry: Telemetry | None = None,
 ) -> FastAPI:
     google = google or GoogleAuth()
     browser_rules = BrowserRules()
@@ -623,6 +653,7 @@ def create_app(
     installer = browser_installer or BrowserInstaller()
     ollama = ollama or OllamaSetup()
     onboarding = Onboarding()
+    telemetry = telemetry or Telemetry()
     registry = registry or ProviderRegistry()
     skills = skills or SkillRegistry()
     skill_state = SkillState()
@@ -666,6 +697,37 @@ def create_app(
     app.router.add_event_handler("shutdown", installer.close)
     app.router.add_event_handler("shutdown", ollama.close)
     app.state.tools = tools
+
+    def report_start() -> None:
+        note = os.environ.get("PIYO_SHELL_CRASH_FILE")  # set by the desktop shell
+        if note and Path(note).name == "shell-crash.log":
+            read_shell_crashes(telemetry, Path(note))
+        telemetry.app_start()
+
+    app.router.add_event_handler("startup", report_start)
+    sender: list[asyncio.Task] = []
+
+    async def start_sender() -> None:
+        async def loop() -> None:
+            while True:
+                await asyncio.sleep(TELEMETRY_SEND_EVERY_S)
+                await asyncio.to_thread(telemetry.flush)  # a no-op while off or not configured
+
+        if telemetry.endpoint_configured():
+            sender.append(asyncio.create_task(loop()))
+
+    async def stop_sender() -> None:
+        for task in sender:
+            task.cancel()
+
+    app.router.add_event_handler("startup", start_sender)
+    app.router.add_event_handler("shutdown", stop_sender)
+
+    async def report_unhandled(_request, exc: Exception) -> JSONResponse:
+        telemetry.crash(exc)  # class name and scrubbed stack only; does nothing unless the user opted in
+        return JSONResponse({"detail": "Internal error"}, status_code=500)
+
+    app.add_exception_handler(Exception, report_unhandled)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=ALLOWED_ORIGINS,
@@ -674,7 +736,7 @@ def create_app(
     )
 
     def require_token(authorization: str = Header(default="")) -> None:
-        if not secrets.compare_digest(authorization, f"Bearer {token}"):
+        if not same_secret(authorization, f"Bearer {token}"):
             raise HTTPException(status_code=401, detail="invalid token")
 
     def get_provider(provider_id: str) -> Provider:
@@ -1028,6 +1090,38 @@ def create_app(
             detail = f"Could not change the browser: {type(e).__name__}"
             raise HTTPException(status_code=500, detail=detail) from None
         return BrowserOut(**vars(browser.status()))
+
+    def telemetry_out() -> TelemetryOut:
+        batch = telemetry.batch()
+        return TelemetryOut(
+            choice=telemetry.choice(),
+            install_id=telemetry.install_id(),
+            endpoint_configured=telemetry.endpoint_configured(),
+            events=batch["events"] if batch else [],
+            sends=[
+                {"service": r.service, "configured": bool(r.url), "payload": r.payload}
+                for r in telemetry.requests()
+            ],
+        )
+
+    @app.get("/api/telemetry", dependencies=auth)
+    def get_telemetry() -> TelemetryOut:
+        return telemetry_out()
+
+    @app.put("/api/telemetry", dependencies=auth)
+    def set_telemetry(body: TelemetryIn) -> TelemetryOut:
+        telemetry.set_enabled(body.enabled)
+        return telemetry_out()
+
+    @app.delete("/api/telemetry/pending", dependencies=auth)
+    def clear_telemetry() -> TelemetryOut:
+        telemetry.clear()
+        return telemetry_out()
+
+    @app.post("/api/telemetry/ui-error", dependencies=auth, status_code=204)
+    def report_ui_error(body: UiErrorIn) -> None:
+        """The app's own unhandled errors: kept only if they pass the same table as every other event."""
+        telemetry.crash(source="app", type_name=body.name, frames=body.frames)
 
     @app.get("/api/onboarding", dependencies=auth)
     def get_onboarding() -> OnboardingIO:
@@ -1500,6 +1594,35 @@ def create_app(
         )
 
 
+    def telemetry_skill(name: str) -> str | None:
+        """A skill id that may be counted: built-in or from the signed catalog, never a user's own."""
+        skill = skills.get(name)
+        if skill is None:
+            return None
+        if skill.source == "builtin":
+            return name
+        try:
+            meta = json.loads((skill.path / ".piyo-install.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return name if isinstance(meta, dict) and meta.get("verified") is True else None
+
+    def finish_run(log: RunLog, outcome: str, error: str | None = None) -> None:
+        run_store.save(log, outcome, error)
+        used = [s["data"].get("name") for s in log.steps if s["kind"] == "tool"]
+        loaded = [s["data"].get("name") for s in log.steps if s["kind"] == "skill"]
+        telemetry.run_finished(
+            outcome,
+            [n for n in used if isinstance(n, str) and tools.get(n) is not None],
+            [n for n in map(telemetry_skill, loaded) if n],
+        )
+
+    def report_unexpected(exc: Exception) -> None:
+        """A bug in Piyo; provider and network failures have their own message and are not crashes."""
+        if isinstance(exc, MissingApiKey) or type(exc).__module__.split(".")[0] in PROVIDER_ERROR_MODULES:
+            return
+        telemetry.crash(exc)
+
     def build_agent(provider: Provider, model: str, approver) -> Agent:
         budget = run_settings.get()
         return Agent(
@@ -1546,7 +1669,7 @@ def create_app(
         finally:
             store.append(conv.id, complete_tool_calls(messages[1:]))
             store.set_active_skills(conv.id, sorted(agent.active_skills))
-            run_store.save(log, outcome, error)
+            finish_run(log, outcome, error)
             browser.set_working(False)
         reply = next((m.content for m in reversed(messages) if m.role == "assistant" and m.content), "")
         return RunResult(conv.id, outcome, reply, error)
@@ -1643,7 +1766,7 @@ def create_app(
             await ws.close(code=4403)
             return
         # Browsers can't set headers on WebSockets, so the token comes as a query param.
-        if not secrets.compare_digest(ws.query_params.get("token", ""), token):
+        if not same_secret(ws.query_params.get("token", ""), token):
             await ws.close(code=4401)
             return
         await ws.accept()
@@ -1744,7 +1867,7 @@ def create_app(
                 nonlocal logged
                 if not logged:  # once per run, whichever path ends it first
                     logged = True
-                    run_store.save(log, outcome, error)
+                    finish_run(log, outcome, error)
 
             def save() -> None:
                 nonlocal saved
@@ -1788,6 +1911,7 @@ def create_app(
                 save_log("cancelled")
                 raise
             except Exception as e:
+                report_unexpected(e)
                 message = describe_error(provider, e)
                 save_log("error", message)
                 await ws.send_json({"type": "error", "message": message})
@@ -1804,6 +1928,7 @@ def create_app(
             except (WebSocketDisconnect, asyncio.CancelledError):
                 raise
             except Exception as e:
+                report_unexpected(e)
                 await ws.send_json({"type": "error", "message": describe_error(provider, e)})
 
         try:

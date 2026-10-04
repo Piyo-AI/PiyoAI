@@ -88,9 +88,13 @@ def test_setup_guide_is_served_for_builtin_skills():
     assert client.get("/api/skills/gmail-triage/setup").status_code == 401
 
 
-def test_a_skill_without_a_guide_or_an_unknown_name_is_404():
-    _, client = make()
-    assert client.get("/api/skills/web-research/setup", headers=AUTH).status_code == 404
+def test_a_skill_without_a_guide_or_an_unknown_name_is_404(tmp_path):
+    d = tmp_path / "u" / "bare"
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text("---\nname: bare\ndescription: x\n---\nbody\n", encoding="utf-8")
+    skills = SkillRegistry(builtin_dir=tmp_path / "none", user_dir=tmp_path / "u")
+    client = TestClient(server.create_app(TOKEN, skills=skills))
+    assert client.get("/api/skills/bare/setup", headers=AUTH).status_code == 404
     assert client.get("/api/skills/nope/setup", headers=AUTH).status_code == 404
     assert client.get("/api/skills/..%2F..%2Fetc/setup", headers=AUTH).status_code == 404
 

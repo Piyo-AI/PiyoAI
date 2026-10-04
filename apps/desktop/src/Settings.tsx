@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiStyle, FolderEntry, inTauri, pickFolder, Provider, RunSettings, SkillInfo } from "./api";
 import { BrowserSettings } from "./BrowserSettings";
 import { MemoryPage } from "./MemoryPage";
+import { PrivacyPage } from "./PrivacyPage";
 import { UpdatesPage } from "./UpdatesPage";
 import { SchedulePage } from "./SchedulePage";
 import { SkillEditor } from "./SkillEditor";
@@ -24,7 +25,7 @@ interface Props {
   refreshKey?: unknown;
 }
 
-export type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "browser" | "memory" | "scheduled" | "limits" | "updates";
+export type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "browser" | "memory" | "scheduled" | "limits" | "updates" | "privacy";
 
 export function Settings({
   providers,
@@ -113,6 +114,9 @@ export function Settings({
             <button className={`nav-item ${page === "updates" ? "active" : ""}`} onClick={() => go("updates")}>
               Updates
             </button>
+            <button className={`nav-item ${page === "privacy" ? "active" : ""}`} onClick={() => go("privacy")}>
+              Privacy
+            </button>
             <button className="nav-item" onClick={onRunFirstSetup}>
               Run setup again
             </button>
@@ -154,6 +158,7 @@ export function Settings({
             {page === "browser" && <BrowserSettings />}
             {page === "memory" && <MemoryPage />}
             {page === "updates" && <UpdatesPage />}
+            {page === "privacy" && <PrivacyPage />}
             {page === "scheduled" && (
               <SchedulePage
                 providerId={providerId}

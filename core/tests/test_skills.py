@@ -77,3 +77,14 @@ def test_catalog_has_only_name_and_description(tmp_path):
     prompt = SkillRegistry(builtin_dir=tmp_path / "x", user_dir=tmp_path / "u").catalog_prompt()
     assert "gmail-triage: Summarize unread Gmail" in prompt
     assert "Do the thing" not in prompt
+
+
+def test_every_builtin_skill_ships_a_setup_guide():
+    from piyo.skills.validate import MIN_SETUP_CHARS
+
+    for skill in SkillRegistry().list():
+        if skill.source != "builtin":
+            continue
+        guide = skill.path / "SETUP.md"
+        assert guide.is_file(), f"{skill.manifest.name} has no SETUP.md"
+        assert len(guide.read_text(encoding="utf-8").strip()) >= MIN_SETUP_CHARS

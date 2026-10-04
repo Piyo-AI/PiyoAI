@@ -250,3 +250,12 @@ def test_openrouter_lists_models_without_a_key(client):
     providers = {p["id"]: p for p in client.get("/api/providers", headers=AUTH).json()}
     assert providers["openrouter"]["public_models"] is True
     assert providers["openai"]["public_models"] is False
+
+
+def test_a_non_ascii_token_is_refused_not_a_server_error(client):
+    odd = {"Authorization": "Bearer é".encode("latin-1")}
+    assert client.get("/api/providers", headers=odd).status_code == 401
+    with pytest.raises(Exception) as closed:  # the socket is closed with 4401 before it opens
+        with client.websocket_connect("/ws/chat?token=%C3%A9"):
+            pass
+    assert "4401" in str(closed.value) or "WebSocketDisconnect" in type(closed.value).__name__

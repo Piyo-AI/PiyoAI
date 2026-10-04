@@ -1,4 +1,5 @@
 mod core;
+mod crash;
 mod rollback;
 
 use tauri::Manager;
@@ -17,6 +18,9 @@ pub fn run() {
         .manage(state.clone())
         .manage(rollback::RollbackProgress::default())
         .setup(|app| {
+            if let Some(note) = crash::note_path(app.handle()) {
+                crash::install(note);
+            }
             let state = app.state::<std::sync::Arc<core::CoreState>>().inner().clone();
             core::launch(app.handle().clone(), state);
             rollback::check_on_start(app.handle().clone());

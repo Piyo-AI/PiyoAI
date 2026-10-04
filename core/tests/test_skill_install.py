@@ -119,6 +119,13 @@ def test_builtin_names_cannot_be_installed_or_removed(installer):
         ({"/abs/SKILL.md": skill_md()}, None, "Unsafe"),
         ({"SKILL.md": skill_md(), "a/../../x": "x"}, None, "Unsafe"),
         ({"SKILL.md": skill_md()}, {"link": "/etc/passwd"}, "Links"),
+        # names Windows treats specially: a stream, a device, a trailing dot or space, control characters
+        ({"SKILL.md": skill_md(), "scripts/run.py:hidden": "x"}, None, "Unsafe"),
+        ({"SKILL.md": skill_md(), "SKILL.md:stream": "x"}, None, "Unsafe"),
+        ({"SKILL.md": skill_md(), "assets/NUL.txt": "x"}, None, "Unsafe"),
+        ({"SKILL.md": skill_md(), "assets/notes.": "x"}, None, "Unsafe"),
+        ({"SKILL.md": skill_md(), "assets/notes ": "x"}, None, "Unsafe"),
+        ({"SKILL.md": skill_md(), "assets/ab": "x"}, None, "Unsafe"),
         ({"readme.txt": "hi"}, None, "exactly one SKILL.md"),
         ({"a/SKILL.md": skill_md(), "b/SKILL.md": skill_md()}, None, "exactly one SKILL.md"),
         ({"a/SKILL.md": skill_md(), "other.txt": "x"}, None, "outside the skill folder"),

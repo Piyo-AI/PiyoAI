@@ -87,6 +87,18 @@ export interface BrowserInstall {
   message: string;
 }
 
+export interface TelemetryInfo {
+  /** `unset` = never asked; nothing is collected until `on`. */
+  choice: "unset" | "on" | "off";
+  install_id: string | null;
+  /** False in builds with no backend: events then stay on this computer. */
+  endpoint_configured: boolean;
+  /** What waits in the queue. */
+  events: { id: string; event: string; day: string; data: Record<string, unknown> }[];
+  /** The requests a send would make, as they would be sent. `configured` is false until the service is set up. */
+  sends: { service: string; configured: boolean; payload: Record<string, unknown> }[];
+}
+
 export interface RunSettings {
   max_steps: number;
   max_tokens: number;
@@ -562,6 +574,9 @@ export interface OllamaStatus {
 }
 
 export const api = {
+  telemetry: () => request<TelemetryInfo>("GET", "/api/telemetry"),
+  setTelemetry: (enabled: boolean) => request<TelemetryInfo>("PUT", "/api/telemetry", { enabled }),
+  clearTelemetry: () => request<TelemetryInfo>("DELETE", "/api/telemetry/pending"),
   onboarding: () => request<{ done: boolean }>("GET", "/api/onboarding"),
   setOnboarding: (done: boolean) => request<{ done: boolean }>("PUT", "/api/onboarding", { done }),
   ollama: () => request<OllamaStatus>("GET", "/api/ollama"),
@@ -741,4 +756,20 @@ export class ChatSocket {
     this.ws?.close();
     this.ws = null;
   }
+}
+
+let uiErrorsReported = 0;
+
+/**
+ * Report an unhandled error from this window. Only the error's class name and `file:line:column` of each stack
+ * entry leave the page (never the message); the core keeps them only if the user opted in and drops anything
+ * that does not match its table.
+ */
+export function reportUiError(error: unknown): void {
+  if (uiErrorsReported >= 5) return; // a render loop must not flood the queue
+  uiErrorsReported += 1;
+  const name = error instanceof Error ? error.name : "Error";
+  const stack = error instanceof Error && error.stack ? error.stack : "";
+  const frames = [...stack.matchAll(/([\w.\-]+\.[a-z]+:\d+(?::\d+)?)\)?\s*$/gm)].map((m) => m[1]).slice(-15);
+  request("POST", "/api/telemetry/ui-error", { name, frames }).catch(() => undefined);
 }

@@ -2,7 +2,9 @@
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
     "resources": {
-      "../../../core/dist/piyo-core": "core"
+      "../../../core/dist/piyo-core": "core",
+      "../../../LICENSE": "LICENSE",
+      "../../../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
     }
   }
 }

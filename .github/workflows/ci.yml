@@ -101,3 +101,24 @@ jobs:
           workspaces: apps/desktop/src-tauri
       - run: cargo check
         working-directory: apps/desktop/src-tauri
+
+  licenses:
+    name: Dependency licences
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: uv sync --locked
+        working-directory: core
+      - run: npm ci
+        working-directory: apps/desktop
+      # Fails when a shipped dependency has a licence outside the allowed list (scripts/licenses.py).
+      - run: uv run python ../scripts/licenses.py --check
+        working-directory: core

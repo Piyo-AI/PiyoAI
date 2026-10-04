@@ -50,3 +50,13 @@ def isolated(tmp_path, monkeypatch):
     keyring.set_keyring(MemoryKeyring())
     yield
     keyring.set_keyring(previous)
+
+
+@pytest.fixture(autouse=True)
+def no_real_telemetry(monkeypatch):
+    """Tests never reach the real Sentry or PostHog projects, whatever the shipped settings are."""
+    from piyo import telemetry
+
+    monkeypatch.setattr(telemetry, "SENTRY_DSN", "")
+    monkeypatch.setattr(telemetry, "POSTHOG_HOST", "")
+    monkeypatch.setattr(telemetry, "POSTHOG_KEY", "")

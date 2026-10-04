@@ -110,6 +110,9 @@ fn core_command(app: &AppHandle) -> Result<Command, String> {
         cmd.current_dir(core_dir);
         cmd
     };
+    if let Some(note) = crate::crash::note_path(app) {
+        cmd.env("PIYO_SHELL_CRASH_FILE", note);
+    }
     // A fresh random port and token on every launch (the packaged core ignores these anyway).
     cmd.env_remove("PIYO_PORT")
         .env_remove("PIYO_TOKEN")

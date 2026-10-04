@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, ModelInfo, OllamaStatus, openExternal, Provider } from "./api";
 
-type Step = "welcome" | "choose" | "cloud" | "local" | "privacy" | "task";
+type Step = "welcome" | "choose" | "cloud" | "local" | "privacy" | "share" | "task";
 
 const STARTERS = [
   "What can you do?",
@@ -97,8 +97,10 @@ export function Onboarding({ providers, onChoose, onClose, onChanged }: Props) {
         )}
 
         {step === "privacy" && provider && (
-          <PrivacyStep provider={provider} onBack={() => setStep("choose")} onNext={() => setStep("task")} />
+          <PrivacyStep provider={provider} onBack={() => setStep("choose")} onNext={() => setStep("share")} />
         )}
+
+        {step === "share" && <ShareStep onBack={() => setStep("privacy")} onNext={() => setStep("task")} />}
 
         {step === "task" && (
           <>
@@ -407,6 +409,46 @@ function PrivacyStep({ provider, onBack, onNext }: { provider: Provider; onBack:
       {error && <p className="error">{error}</p>}
       <div className="inline">
         <button onClick={next}>Next</button>
+        <button className="ghost" onClick={onBack}>
+          Back
+        </button>
+      </div>
+    </>
+  );
+}
+
+function ShareStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }) {
+  const [error, setError] = useState("");
+
+  const choose = async (enabled: boolean) => {
+    try {
+      await api.setTelemetry(enabled);
+      onNext();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <>
+      <h3>Help improve Piyo?</h3>
+      <p>
+        You can share anonymous usage counts and crash reports. It is off unless you say yes, and you can change
+        it any time in Settings &gt; Privacy.
+      </p>
+      <ul className="hint">
+        <li>Shared: Piyo's version, your operating system, which tools and catalog skills ran, and error types.</li>
+        <li>
+          Never shared: your messages, files, email or chats, web addresses, file names, keys or account names.
+        </li>
+        <li>Settings &gt; Privacy shows exactly what would be sent.</li>
+      </ul>
+      {error && <p className="error">{error}</p>}
+      <div className="inline">
+        <button onClick={() => choose(true)}>Share anonymous reports</button>
+        <button className="ghost" onClick={() => choose(false)}>
+          No thanks
+        </button>
         <button className="ghost" onClick={onBack}>
           Back
         </button>

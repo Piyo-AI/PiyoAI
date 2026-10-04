@@ -47,12 +47,19 @@ The full design, architecture, skill system, security model, roadmap and decisio
 PiyoAI/
   apps/desktop/      Tauri app: React + TypeScript UI (src/) and the Rust shell (src-tauri/)
   core/              Python core "piyo": providers, model clients, local API (FastAPI + WebSocket), tests
-  skills/            Built-in skills (coming)
-  docs/              Documentation (coming)
+  skills/            Built-in skills, each with a SKILL.md and a SETUP.md
+  docs/              User guide (docs/user-guide) and the skill authoring guide
   PLAN.md            Project plan, architecture, roadmap, decisions
 ```
 
 The skill catalog lives in a separate repository: [Piyo-AI/piyo-skills](https://github.com/Piyo-AI/piyo-skills).
+
+## Documentation
+
+- [User guide](docs/user-guide/README.md): install, models and providers, skills, privacy, troubleshooting.
+- [Writing a skill](docs/skill-authoring.md), with starter templates in
+  [piyo-skills/templates](https://github.com/Piyo-AI/piyo-skills/tree/main/templates).
+- [Privacy policy](PRIVACY.md) (draft).
 
 ## Prerequisites
 
