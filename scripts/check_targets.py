@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 MAX_GLIBC = (2, 35)  # Ubuntu 22.04
-MAX_MACOS = (12, 0)  # macOS 12 Monterey
+MAX_MACOS = (13, 5)  # macOS 13.5 Ventura: what Playwright's bundled Node needs
 
 ELF = b"\x7fELF"
 MACHO = {bytes.fromhex(h) for h in ("feedface", "feedfacf", "cefaedfe", "cffaedfe")}

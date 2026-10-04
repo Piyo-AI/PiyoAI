@@ -43,7 +43,7 @@ jobs:
         # Linux builds on the oldest release we support (glibc 2.35), as the installers do.
         os: [ubuntu-22.04, windows-latest, macos-latest]
     env:
-      MACOSX_DEPLOYMENT_TARGET: "12.0" # the oldest macOS we support; ignored elsewhere
+      MACOSX_DEPLOYMENT_TARGET: "13.5" # the oldest macOS we support; ignored elsewhere
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

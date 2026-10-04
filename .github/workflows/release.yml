@@ -41,7 +41,7 @@ jobs:
     if: ${{ !cancelled() && (needs.notes.result == 'success' || needs.notes.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     env:
-      MACOSX_DEPLOYMENT_TARGET: "12.0" # the oldest macOS we support; ignored elsewhere
+      MACOSX_DEPLOYMENT_TARGET: "13.5" # the oldest macOS we support; ignored elsewhere
     strategy:
       fail-fast: false
       matrix:
