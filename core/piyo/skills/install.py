@@ -49,10 +49,12 @@ def package_hash(path: Path) -> str:
     (PLAN.md §5) and the app recomputes it on what it downloaded. Install metadata is left out, since it
     is written after the hash is checked.
     """
+    # By the posix path *string*. Sorting the Path objects is wrong: Windows compares them case-insensitively,
+    # so "scripts/a.py" would sort before "SETUP.md" there and after it on every other OS.
+    files = [p for p in path.rglob("*") if p.is_file() and p.name != META_FILE]
     lines = []
-    for file in sorted(p for p in path.rglob("*") if p.is_file() and p.name != META_FILE):
-        digest = hashlib.sha256(file.read_bytes()).hexdigest()
-        lines.append(f"{file.relative_to(path).as_posix()} {digest}\n")
+    for rel, file in sorted((p.relative_to(path).as_posix(), p) for p in files):
+        lines.append(f"{rel} {hashlib.sha256(file.read_bytes()).hexdigest()}\n")
     return hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
 
 

@@ -232,6 +232,23 @@ def test_package_hash_is_stable_and_sees_every_change(tmp_path):
     assert package_hash(a) not in (first, changed)
 
 
+def test_package_hash_does_not_depend_on_the_os_sort_order(tmp_path):
+    # Windows sorts paths case-insensitively ("scripts/..." before "SETUP.md"); the hash must not follow that.
+    import hashlib
+
+    from piyo.skills.install import package_hash
+
+    files = {"SKILL.md": "a", "SETUP.md": "b", "scripts/convert.py": "c", "assets/Z.txt": "d"}
+    files["assets/a.txt"] = "e"
+    for name, text in files.items():
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
+    order = ["SETUP.md", "SKILL.md", "assets/Z.txt", "assets/a.txt", "scripts/convert.py"]  # string order
+    expected = "".join(f"{n} {hashlib.sha256(files[n].encode()).hexdigest()}\n" for n in order)
+    assert package_hash(tmp_path) == hashlib.sha256(expected.encode()).hexdigest()
+
+
 def test_api_skill_secrets_are_stored_in_the_keychain_and_removed_with_the_skill(tmp_path):
     import keyring
 
