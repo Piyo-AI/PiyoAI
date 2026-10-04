@@ -1,0 +1,54 @@
+{
+  "uv": {
+    "version": "0.12.23",
+    "url": "https://github.com/astral-sh/uv/releases/download/{version}/{file}",
+    "files": {
+      "windows-x86_64": {
+        "file": "uv-x86_64-pc-windows-msvc.zip",
+        "sha256": "75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90"
+      },
+      "linux-x86_64": {
+        "file": "uv-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6"
+      },
+      "linux-aarch64": {
+        "file": "uv-aarch64-unknown-linux-gnu.tar.gz",
+        "sha256": "6524bd338177ed50d035d39354e12545e993bbeba2ecbddf0480c5b3a81d313f"
+      },
+      "macos-x86_64": {
+        "file": "uv-x86_64-apple-darwin.tar.gz",
+        "sha256": "960da44cb4b73685206ddd250b19e0a117fa41095710c1038f081f5cb613efb4"
+      },
+      "macos-aarch64": {
+        "file": "uv-aarch64-apple-darwin.tar.gz",
+        "sha256": "50487ae565ccd96e499056b4674d438f4c53170202617b4c759defe0c6a1b544"
+      }
+    }
+  },
+  "deno": {
+    "version": "2.9.7",
+    "url": "https://github.com/denoland/deno/releases/download/v{version}/{file}",
+    "files": {
+      "windows-x86_64": {
+        "file": "deno-x86_64-pc-windows-msvc.zip",
+        "sha256": "a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238"
+      },
+      "linux-x86_64": {
+        "file": "deno-x86_64-unknown-linux-gnu.zip",
+        "sha256": "c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490"
+      },
+      "linux-aarch64": {
+        "file": "deno-aarch64-unknown-linux-gnu.zip",
+        "sha256": "c832298b1ad4422481334855f6003e0f54145762c5a134f20a489511d2f65bbf"
+      },
+      "macos-x86_64": {
+        "file": "deno-x86_64-apple-darwin.zip",
+        "sha256": "95daaff11c116a52ad54785e7914c8e9c9cdcaba793c5ed929c74ca2d8e6259a"
+      },
+      "macos-aarch64": {
+        "file": "deno-aarch64-apple-darwin.zip",
+        "sha256": "5cd46d6268f6f78f5d88bdc7159d20bd44cdaa4b3303474839f87ec6fe7ae25c"
+      }
+    }
+  }
+}

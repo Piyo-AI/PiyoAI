@@ -20,6 +20,9 @@ CORE = ROOT / "core"
 OUT = CORE / "dist" / "piyo-core"
 UV = shutil.which("uv") or "uv"
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bundled_tools import exe_name, install_tools  # noqa: E402
+
 
 def build() -> None:
     shutil.rmtree(CORE / "build", ignore_errors=True)
@@ -29,6 +32,9 @@ def build() -> None:
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": ".venv-build"}
     subprocess.run([UV, "sync", "--locked", "--no-dev", "--group", "build"], cwd=CORE, env=env, check=True)
     subprocess.run([UV, "run", "--no-sync", "pyinstaller", "--noconfirm", "piyo-core.spec"], cwd=CORE, env=env, check=True)
+    # Beside the executable, where piyo.runtime.bundled_tool looks. Skill scripts need them and users do not have them.
+    versions = install_tools(OUT / "bin")
+    print("bundled:", ", ".join(f"{tool} {version}" for tool, version in versions.items()))
 
 
 def smoke() -> None:
@@ -64,6 +70,12 @@ def smoke() -> None:
                     time.sleep(0.2)
             assert body, f"{path} did not answer: {proc.stderr.read()[-800:] if proc.poll() is not None else ''}"
             assert expect is None or expect in body, f"{path} answered without {expect!r}: {body[:200]}"
+        pins = json.loads((CORE / "bundled-tools.json").read_text())
+        for tool in ("uv", "deno"):  # the shipped programs run, and are the pinned versions
+            out = subprocess.run(
+                [str(OUT / "bin" / exe_name(tool)), "--version"], capture_output=True, text=True, timeout=30
+            ).stdout
+            assert pins[tool]["version"] in out, f"bundled {tool} reports {out!r}, expected {pins[tool]['version']}"
         print("smoke test passed:", base, "| browser:", body)
     finally:
         proc.stdin.close()

@@ -33,3 +33,4 @@ Thumbs.db
 
 # Machine-specific Claude Code notes
 CLAUDE.local.md
+core/.tool-cache/

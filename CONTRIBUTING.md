@@ -58,6 +58,19 @@ Providers are data, so a preset needs no new code when the service speaks the Op
 Built-in skills live in `skills/<name>/SKILL.md` (format: PLAN.md §5, implemented in `core/piyo/skills/`).
 Catalog skills go in [Piyo-AI/piyo-skills](https://github.com/Piyo-AI/piyo-skills).
 
+## Building the packaged core and upgrading `uv` / Deno
+
+`python scripts/build_core.py --smoke` builds the shipped core (PyInstaller) and checks it runs. The build also puts `uv` and
+Deno into its `bin/` folder, from the versions pinned in `core/bundled-tools.json` (file name and SHA-256 per OS). A download
+whose hash differs is refused: these programs run skill code. Nothing is looked up at build time, so to upgrade:
+
+1. Pick the release (uv: github.com/astral-sh/uv/releases, Deno: github.com/denoland/deno/releases).
+2. Change `version` and every platform's `sha256` in `core/bundled-tools.json`. Take the hashes from the release's own
+   checksum files (`<asset>.sha256` for uv, `<asset>.sha256sum` for Deno; Deno's Windows file is a `Hash :` table, not
+   `hash  name`). Use lowercase hex.
+3. `python scripts/build_core.py --smoke` checks the new hash for your OS and that the bundled programs report the pinned version;
+   CI does the same on the others. Run the Deno tests against the new version too (`PIYO_DENO`, `core/tests/test_script_runner.py`).
+
 ## Reporting security problems
 
 Not here: see [SECURITY.md](SECURITY.md).

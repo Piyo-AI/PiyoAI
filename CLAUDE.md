@@ -57,7 +57,7 @@ the `core-exited` event; `api.ts` `resolveConnection` polls it.
 and the Playwright driver; CI runs it on all three OSes (job `package`). `npm run tauri:build` (in `apps/desktop`) bundles that
 folder through `src-tauri/tauri.bundle.json` (kept out of `tauri.conf.json` so `tauri dev` and `cargo check` do not need a
 built core); build the core first. `piyo/runtime.py` is the one place that knows about frozen runs: `frozen()`, `bundle_dir()`,
-`bundled_tool()` (`uv`/Deno in `<bundle>/bin`, then PATH), `use_shared_browser_cache()` (Playwright defaults
+`bundled_tool()` (`uv`/Deno in `<bundle>/bin`, which `scripts/bundled_tools.py` fills from `core/bundled-tools.json`: pinned versions and SHA-256 per OS, a mismatch stops the build; upgrade steps in CONTRIBUTING.md; then PATH), `use_shared_browser_cache()` (Playwright defaults
 `PLAYWRIGHT_BROWSERS_PATH` to 0 = inside the bundle when frozen; we point it at the per-user cache). A frozen core ignores `.env`,
 `PIYO_PORT` and `PIYO_TOKEN`. Anything that spawns `sys.executable` must handle the frozen case (the Chromium installer does:
 `installer_command()` runs the bundled Node driver). A new dynamically imported package or data file needs an entry in the spec.
