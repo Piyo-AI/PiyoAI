@@ -3,12 +3,17 @@
 A relative path means "in the workspace", so a task that names no folder puts its files there.
 
 Paths are resolved (symlinks and `..` followed) before the folder check, so a link inside an
-approved folder can't lead outside it. Reads are `auto`. Changes are `confirm` unless the folder is
+approved folder can't lead outside it. A link swapped in after that check is caught by resolving again
+right before the file is touched (`_recheck`) and, where the OS has it, by opening without following a link
+at the last step. The window that remains is the few instructions between the second check and the call.
+
+Reads are `auto`. Changes are `confirm` unless the folder is
 marked `auto_changes`; delete and overwrite always are. Delete goes to the OS trash.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -21,6 +26,8 @@ from piyo.tools.base import Risk, RunContext, Tool
 
 MAX_READ_BYTES = 100_000
 MAX_LIST_ENTRIES = 500
+# Open the last path part without following a link where the OS can (not Windows); O_BINARY is Windows-only.
+_NO_FOLLOW = getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
 
 
 class FileAccessError(Exception):
@@ -57,6 +64,12 @@ class FileTools:
                 return path, root
         approved = ", ".join(str(r) for r in roots)
         raise FileAccessError(f"{raw} is outside the approved folders ({approved}).")
+
+    def _recheck(self, path: Path, root: Path) -> None:
+        """Resolve again just before use: a link swapped in since `_resolve` would lead somewhere else."""
+        again = path.resolve()
+        if again != path or not (again == root or again.is_relative_to(root)) or protected_reason(again):
+            raise FileAccessError(f"{path} changed while it was being checked; nothing was done.")
 
     def _auto(self, raw: object) -> bool:
         """True if the path is inside a folder where changes need no per-call approval."""
@@ -134,10 +147,11 @@ class FileTools:
         return wrap_untrusted("\n".join(lines) or "(empty folder)", f"folder: {path}")
 
     async def read(self, args: dict, ctx: RunContext) -> str:
-        path, _ = self._resolve(args.get("path"))
+        path, root = self._resolve(args.get("path"))
         if not path.is_file():
             raise FileAccessError(f"Not a file: {path}")
-        with path.open("rb") as f:
+        self._recheck(path, root)
+        with os.fdopen(os.open(path, os.O_RDONLY | _NO_FOLLOW), "rb") as f:
             data = f.read(MAX_READ_BYTES + 1)
         text = data[:MAX_READ_BYTES].decode("utf-8", errors="replace")
         if len(data) > MAX_READ_BYTES:
@@ -145,7 +159,7 @@ class FileTools:
         return wrap_untrusted(text, f"file: {path}")
 
     async def write(self, args: dict, ctx: RunContext) -> str:
-        path, _ = self._resolve(args.get("path"))
+        path, root = self._resolve(args.get("path"))
         content = args.get("content")
         if not isinstance(content, str):
             raise FileAccessError("content must be text.")
@@ -155,21 +169,31 @@ class FileTools:
             raise FileAccessError(f"{path} already exists. Pass overwrite=true to replace it.")
         if not path.parent.is_dir():
             raise FileAccessError(f"Folder does not exist: {path.parent}")
-        path.write_text(content, encoding="utf-8", newline="")
+        self._recheck(path, root)
+        # Without overwrite the file is created exclusively: one that appeared since the check stays.
+        mode = os.O_TRUNC if args.get("overwrite") else os.O_EXCL
+        flags = os.O_WRONLY | os.O_CREAT | _NO_FOLLOW | mode
+        try:
+            fd = os.open(path, flags, 0o666)
+        except FileExistsError:
+            raise FileAccessError(f"{path} already exists. Pass overwrite=true to replace it.") from None
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(content)
         return f"Wrote {len(content)} characters to {path}"
 
     async def create_folder(self, args: dict, ctx: RunContext) -> str:
-        path, _ = self._resolve(args.get("path"))
+        path, root = self._resolve(args.get("path"))
         if path.exists():
             raise FileAccessError(f"{path} already exists.")
         if not path.parent.is_dir():
             raise FileAccessError(f"Folder does not exist: {path.parent}")
+        self._recheck(path, root)
         path.mkdir()
         return f"Created folder {path}"
 
     async def move(self, args: dict, ctx: RunContext) -> str:
         src, src_root = self._resolve(args.get("source"))
-        dest, _ = self._resolve(args.get("destination"))
+        dest, dest_root = self._resolve(args.get("destination"))
         if src == src_root:
             raise FileAccessError("An approved folder itself can't be moved.")
         if not src.exists():
@@ -180,6 +204,8 @@ class FileTools:
             raise FileAccessError(f"{dest} already exists; nothing was moved.")
         if not dest.parent.is_dir():
             raise FileAccessError(f"Folder does not exist: {dest.parent}")
+        self._recheck(src, src_root)
+        self._recheck(dest, dest_root)
         shutil.move(str(src), str(dest))
         return f"Moved {src} to {dest}"
 
@@ -191,6 +217,7 @@ class FileTools:
             raise FileAccessError(f"Not found: {path}")
         if path.is_dir() and any(path.iterdir()):
             raise FileAccessError(f"{path} is not empty; only empty folders go.")
+        self._recheck(path, root)
         try:
             send2trash(str(path))  # recoverable: the OS trash, never a permanent delete
         except Exception as e:

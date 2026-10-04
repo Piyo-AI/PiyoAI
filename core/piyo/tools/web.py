@@ -50,7 +50,8 @@ def _is_public(address: str) -> bool:
     return ip.is_global and not ip.is_multicast
 
 
-async def check_url(url: str, resolver: Resolver) -> str:
+async def resolve_public(url: str, resolver: Resolver) -> tuple[str, list[str]]:
+    """The cleaned address and the public IPs its host resolved to (all of them must be public)."""
     parts = urlsplit(url.strip())
     if parts.scheme not in ("http", "https"):
         raise WebError("Only http and https addresses can be fetched.")
@@ -63,7 +64,32 @@ async def check_url(url: str, resolver: Resolver) -> str:
         raise WebError(
             f"{parts.hostname} is not a public internet address, so Piyo will not fetch it."
         )
-    return parts.geturl()
+    return parts.geturl(), addresses
+
+
+async def check_url(url: str, resolver: Resolver) -> str:
+    return (await resolve_public(url, resolver))[0]
+
+
+def _bracketed(host: str) -> str:
+    return f"[{host}]" if ":" in host else host
+
+
+def pinned_request(url: str, address: str) -> tuple[str, dict[str, str], dict[str, str]]:
+    """(URL with the checked IP in place of the host, headers, extensions) for one connection.
+
+    The connection goes to the address that was checked, so a second DNS answer (DNS rebinding) cannot send it
+    elsewhere; `Host` and the TLS server name stay the real host, so virtual hosts and certificates work.
+    """
+    parts = urlsplit(url)
+    port = f":{parts.port}" if parts.port else ""
+    host = parts.hostname or ""
+    netloc = _bracketed(address) + port
+    return (
+        parts._replace(netloc=netloc).geturl(),
+        {"Host": _bracketed(host) + port},
+        {"sni_hostname": host},
+    )
 
 
 class _TextExtractor(HTMLParser):
@@ -121,6 +147,22 @@ class WebTools:
         self._resolver = resolver
         self._transport = transport
 
+    async def _hop(
+        self, client: httpx.AsyncClient, url: str, address: str
+    ) -> tuple[str, httpx.Response, bytes, bool] | str:
+        """One request to the checked address: a redirect target, or (url, response, body, cut)."""
+        target, headers, extensions = pinned_request(url, address)
+        async with client.stream("GET", target, headers=headers, extensions=extensions) as res:
+            if res.is_redirect and (loc := res.headers.get("location")):
+                return urljoin(url, loc)  # checked again by the caller
+            body, cut = b"", False
+            async for chunk in res.aiter_bytes():
+                body += chunk
+                if len(body) > MAX_BYTES:
+                    body, cut = body[:MAX_BYTES], True
+                    break
+            return url, res, body, cut
+
     async def _get(self, url: str) -> tuple[str, httpx.Response, bytes, bool]:
         async with httpx.AsyncClient(
             transport=self._transport,
@@ -129,18 +171,19 @@ class WebTools:
             headers={"User-Agent": USER_AGENT},
         ) as client:
             for _ in range(MAX_REDIRECTS + 1):
-                url = await check_url(url, self._resolver)
-                async with client.stream("GET", url) as res:
-                    if res.is_redirect and (loc := res.headers.get("location")):
-                        url = urljoin(url, loc)  # checked again at the top of the loop
+                url, addresses = await resolve_public(url, self._resolver)
+                for i, address in enumerate(addresses):
+                    try:
+                        result = await self._hop(client, url, address)
+                    except (httpx.ConnectError, httpx.ConnectTimeout):
+                        if i == len(addresses) - 1:  # another address of the same host may answer
+                            raise
                         continue
-                    body, cut = b"", False
-                    async for chunk in res.aiter_bytes():
-                        body += chunk
-                        if len(body) > MAX_BYTES:
-                            body, cut = body[:MAX_BYTES], True
-                            break
-                    return url, res, body, cut
+                    break
+                if isinstance(result, str):
+                    url = result
+                    continue
+                return result
         raise WebError("Too many redirects.")
 
     async def fetch(self, args: dict, ctx: RunContext) -> str:

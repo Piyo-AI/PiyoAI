@@ -1,3 +1,5 @@
+import shutil
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -11,7 +13,7 @@ from piyo.server.app import create_app
 from piyo.skills import SkillRegistry
 from piyo.tools import Risk, ToolRegistry, core_tools
 from piyo.tools.base import RunContext
-from piyo.tools.files import file_tools
+from piyo.tools.files import FileTools, file_tools
 
 PROVIDER = Provider(
     id="t", name="T", api_style=ApiStyle.OPENAI, base_url="http://x", requires_key=False
@@ -359,3 +361,62 @@ def test_workspace_is_never_stored_or_removable(ws_env, tmp_path):
     assert [g.path for g in out] == [other.resolve(), ws.resolve()]
     assert "Piyo" not in folders.path.read_text()
     assert [g.path for g in folders.set([])] == [ws.resolve()]
+
+
+@pytest.fixture
+def swapped(env, monkeypatch):
+    """After `_resolve` approves a path in root/sub, root/sub is replaced by a link to the outside folder."""
+    root, outside, _, _ = env
+    sub = root / "sub"
+    sub.mkdir()
+    (sub / "a.txt").write_text("inside", encoding="utf-8")
+    (outside / "a.txt").write_text("outside", encoding="utf-8")
+    real = FileTools._resolve
+
+    def resolve_then_swap(self, raw):
+        result = real(self, raw)
+        if sub.exists() and not sub.is_symlink():
+            shutil.move(str(sub), str(root / "sub-moved"))
+            try:
+                sub.symlink_to(outside, target_is_directory=True)
+            except OSError:
+                pytest.skip("symlinks not permitted on this machine")
+        return result
+
+    monkeypatch.setattr(FileTools, "_resolve", resolve_then_swap)
+    return root, outside
+
+
+async def test_a_link_swapped_in_after_the_check_is_not_followed_on_read(env, swapped):
+    root, _ = swapped
+    with pytest.raises(Exception, match="changed while"):
+        await run(env, "files.read", path=str(root / "sub" / "a.txt"))
+
+
+async def test_a_link_swapped_in_after_the_check_is_not_written_through(env, swapped):
+    root, outside = swapped
+    with pytest.raises(Exception, match="changed while"):
+        await run(env, "files.write", path=str(root / "sub" / "b.txt"), content="x")
+    assert not (outside / "b.txt").exists()
+
+
+async def test_a_link_swapped_in_after_the_check_is_not_moved_through(env, swapped):
+    root, outside = swapped
+    with pytest.raises(Exception, match="changed while"):
+        await run(env, "files.move", source=str(root / "sub" / "a.txt"), destination=str(root / "m.txt"))
+    assert (outside / "a.txt").read_text(encoding="utf-8") == "outside"
+
+
+async def test_a_file_that_appears_after_the_check_is_not_overwritten(env, monkeypatch):
+    root, _, _, _ = env
+    target = root / "n.txt"
+    real = FileTools._recheck
+
+    def appear(self, path, r):
+        real(self, path, r)
+        target.write_text("first", encoding="utf-8")
+
+    monkeypatch.setattr(FileTools, "_recheck", appear)
+    with pytest.raises(Exception, match="already exists"):
+        await run(env, "files.write", path=str(target), content="second")
+    assert target.read_text(encoding="utf-8") == "first"

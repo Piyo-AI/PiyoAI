@@ -5,7 +5,7 @@ from piyo.safety.untrusted import wrap_untrusted
 from piyo.skills import SkillRegistry
 from piyo.tools import Risk, ToolRegistry, core_tools
 from piyo.tools.base import RunContext
-from piyo.tools.web import WebError, html_to_text, web_tools
+from piyo.tools.web import WebError, html_to_text, pinned_request, web_tools
 
 PAGE = """<html><head><title>Hello</title><style>p{}</style><script>evil()</script></head>
 <body><h1>Header</h1><p>First   para.</p><p>Second &amp; last.</p></body></html>"""
@@ -99,7 +99,7 @@ async def test_one_private_answer_among_public_ones_refuses(ctx):
 
 async def test_redirect_to_private_host_is_blocked(ctx):
     def handler(request):
-        if request.url.host == "good.test":
+        if request.headers["host"] == "good.test":
             return httpx.Response(302, headers={"location": "http://internal.test/secret"})
         pytest.fail("the private host must never be requested")
 
@@ -159,3 +159,53 @@ def test_web_reader_skill_valid(tmp_path):
     assert skill is not None, skills.errors
     assert ToolRegistry(core_tools() + web_tools()).get("web.fetch") is not None
     assert skill.manifest.requires.tools == ["web.fetch"]
+
+
+async def test_the_connection_goes_to_the_checked_address_with_the_real_host(ctx):
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.host, request.headers["host"], request.extensions.get("sni_hostname")))
+        return html("<p>ok</p>")
+
+    tool = make(handler, {"example.com": ["93.184.216.34"]})
+    await tool.handler({"url": "https://example.com:8443/a"}, ctx)
+    assert seen == [("93.184.216.34", "example.com:8443", "example.com")]
+
+
+async def test_a_second_dns_answer_cannot_redirect_the_request(ctx):
+    """DNS rebinding: the host answers public the first time and private the second."""
+    answers = iter([["93.184.216.34"], ["127.0.0.1"], ["127.0.0.1"]])
+    seen = []
+
+    async def resolver(host):
+        return next(answers)
+
+    def handler(request):
+        seen.append(request.url.host)
+        return html("<p>ok</p>")
+
+    tool = web_tools(resolver, httpx.MockTransport(handler))[0]
+    await tool.handler({"url": "https://rebind.test/"}, ctx)
+    assert seen == ["93.184.216.34"]
+
+
+async def test_another_address_of_the_host_is_tried_when_one_does_not_connect(ctx):
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.host)
+        if request.url.host == "93.184.216.34":
+            raise httpx.ConnectError("no route")
+        return html("<p>via the second</p>")
+
+    tool = make(handler, {"two.test": ["93.184.216.34", "93.184.216.35"]})
+    assert "via the second" in await tool.handler({"url": "https://two.test/"}, ctx)
+    assert seen == ["93.184.216.34", "93.184.216.35"]
+
+
+def test_pinned_request_formats_ipv6_and_ports():
+    url, headers, ext = pinned_request("http://Example.com/x?q=1", "2606:2800:220:1::1")
+    assert url == "http://[2606:2800:220:1::1]/x?q=1"
+    assert headers == {"Host": "example.com"} and ext == {"sni_hostname": "example.com"}
+    assert pinned_request("https://[2606:2800::1]:444/", "2606:2800::1")[1] == {"Host": "[2606:2800::1]:444"}

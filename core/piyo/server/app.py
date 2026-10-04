@@ -43,6 +43,7 @@ from piyo.models.capabilities import ModelCaps, model_issues
 from piyo.models.ollama import RECOMMENDED_MODEL, OllamaSetup, OllamaStatus
 from piyo.models.prompt_tools import native_with_fallback, prompt_turn
 from piyo.models.turn import Message, stream_turn
+from piyo.runtime import frozen
 from piyo.safety import ApprovalRequest, PermissionGate
 from piyo.scheduler import RuleError, RunResult, Scheduler, SchedulerStore, describe
 from piyo.skills import SkillError, SkillRegistry
@@ -86,13 +87,14 @@ def same_secret(given: str, expected: str) -> bool:
 
 # Exceptions from these packages are provider or network trouble, already explained to the user.
 PROVIDER_ERROR_MODULES = {"openai", "anthropic", "httpx", "httpcore", "ssl", "socket"}
-# Tauri webview origins (Windows/Linux, macOS) and the Vite dev server.
-ALLOWED_ORIGINS = [
-    "http://tauri.localhost",
-    "tauri://localhost",
-    "http://localhost:1420",
-    "http://127.0.0.1:1420",
-]
+# Tauri webview origins (Windows/Linux, macOS).
+APP_ORIGINS = ["http://tauri.localhost", "tauri://localhost"]
+# The Vite dev server. Not allowed in the packaged core: a local program could serve a page there.
+DEV_ORIGINS = ["http://localhost:1420", "http://127.0.0.1:1420"]
+
+
+def allowed_origins() -> list[str]:
+    return APP_ORIGINS if frozen() else APP_ORIGINS + DEV_ORIGINS
 
 # Tool output shown in the app is a preview; the model still gets the full result.
 UI_OUTPUT_CHARS = 2000
@@ -693,6 +695,7 @@ def create_app(
     )
     scheduler_store = scheduler_store or SchedulerStore()
     app = FastAPI(title="Piyo Core", version=__version__)
+    origins = allowed_origins()
     app.router.add_event_handler("shutdown", browser.close)
     app.router.add_event_handler("shutdown", installer.close)
     app.router.add_event_handler("shutdown", ollama.close)
@@ -730,7 +733,7 @@ def create_app(
     app.add_exception_handler(Exception, report_unhandled)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=ALLOWED_ORIGINS,
+        allow_origins=origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -1762,7 +1765,7 @@ def create_app(
         # A browser always names the page a socket is opened from; a page that is not one of ours is refused
         # even with the right token (a program that sends no Origin is not a web page, the token covers it).
         origin = ws.headers.get("origin")
-        if origin is not None and origin not in ALLOWED_ORIGINS:
+        if origin is not None and origin not in origins:
             await ws.close(code=4403)
             return
         # Browsers can't set headers on WebSockets, so the token comes as a query param.

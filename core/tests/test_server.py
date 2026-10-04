@@ -221,6 +221,23 @@ def test_cors_allows_app_origins(client, origin):
     assert r.headers.get("access-control-allow-origin") == origin
 
 
+def test_the_packaged_core_does_not_allow_the_dev_server_origin(monkeypatch):
+    monkeypatch.setattr(server, "frozen", lambda: True)
+    packaged = TestClient(server.create_app(TOKEN))
+    dev = "http://127.0.0.1:1420"
+    r = packaged.options("/api/providers", headers={"Origin": dev, "Access-Control-Request-Method": "GET"})
+    assert "access-control-allow-origin" not in r.headers
+    with (
+        pytest.raises(WebSocketDisconnect) as refused,
+        packaged.websocket_connect(f"/ws/chat?token={TOKEN}", headers={"origin": dev}),
+    ):
+        pass
+    assert refused.value.code == 4403
+    with packaged.websocket_connect(f"/ws/chat?token={TOKEN}", headers={"origin": "tauri://localhost"}) as ws:
+        ws.send_json({"type": "cancel"})
+        assert ws.receive_json()["type"] == "done"
+
+
 def test_cors_rejects_other_origins(client):
     r = client.options("/api/providers", headers={"Origin": "https://evil.example",
                                                  "Access-Control-Request-Method": "GET"})

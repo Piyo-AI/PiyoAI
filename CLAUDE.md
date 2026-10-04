@@ -159,7 +159,8 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
   wrote has run (`produces_untrusted`: `web.*`, `browser.*`, `gmail.*`, `calendar.*`, `files.read`, `files.list`, `skill.run_script`) or
   the chat history holds such a result. `memory.remember` carries a `MemoryGuard` and then needs approval. A new tool must be classified
   in `tests/test_taint.py` (`OWN_TEXT`, or untrusted by name); a new tool that stores anything persistent from model text needs a guard.
-- **WebSocket origin.** `/ws/chat` refuses an `Origin` that is not in `ALLOWED_ORIGINS` (close code 4403) before checking the token.
+- **WebSocket origin.** `/ws/chat` refuses an `Origin` that is not in `allowed_origins()` (close code 4403) before checking the token; the Vite dev origins (`:1420`) are left out when the core is frozen.
+- **Pinned fetches and path rechecks.** `web.fetch` connects to the IP `resolve_public` checked (`pinned_request`: `Host` and SNI stay the real host), so a second DNS answer cannot redirect it; the browser is not covered. File tools call `FileTools._recheck` right before touching a path and open with `O_NOFOLLOW`/`O_EXCL`; a new file tool that acts on a resolved path must do the same.
 - Tool names use dots internally (`gmail.read`); the wire name is `gmail__read` (providers reject dots).
 
 ## Invariants (do not break; add a test when touching them)
