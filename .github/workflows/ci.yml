@@ -49,7 +49,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: core/uv.lock
       # Builds the PyInstaller bundle, starts it like the app does and checks that it answers.
-      - run: python scripts/build_core.py --smoke
+      - run: uv run --no-project python scripts/build_core.py --smoke
 
   desktop:
     name: Desktop UI (${{ matrix.os }})

@@ -27,10 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: The tag matches the version in the files
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: python scripts/check_version.py "${{ github.ref_name }}"
-
       - name: Linux system libraries
         if: runner.os == 'Linux'
         run: |
@@ -43,8 +39,13 @@ jobs:
           enable-cache: true
           cache-dependency-glob: core/uv.lock
 
+      # The scripts run on uv's Python 3.12, not the runner's own (Ubuntu 22.04 has 3.10, which has no tomllib).
+      - name: The tag matches the version in the files
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: uv run --no-project python scripts/check_version.py "${{ github.ref_name }}"
+
       # The packaged core (with uv and Deno), smoke-tested before it goes into an installer.
-      - run: python scripts/build_core.py --smoke
+      - run: uv run --no-project python scripts/build_core.py --smoke
 
       - uses: actions/setup-node@v4
         with:
