@@ -80,5 +80,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: installer-${{ runner.os }}
-          path: apps/desktop/src-tauri/target/release/bundle/*/*
+          # Only the installers: the folders beside them hold the unpacked build (1 GB on Linux).
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/*/*.exe
+            apps/desktop/src-tauri/target/release/bundle/*/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/*/*.AppImage
+            apps/desktop/src-tauri/target/release/bundle/*/*.deb
+            apps/desktop/src-tauri/target/release/bundle/*/*.rpm
           if-no-files-found: error
