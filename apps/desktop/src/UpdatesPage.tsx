@@ -1,12 +1,14 @@
-import { useUpdate } from "./useUpdate";
+import { useAppVersion, useUpdate } from "./useUpdate";
 
 /** Settings > Updates: look for a new version, install it on request, restart to finish. */
 export function UpdatesPage() {
   const { status, check, install, restart } = useUpdate(true);
+  const version = useAppVersion();
 
   return (
     <section className="folders">
       <h3>Updates</h3>
+      {version && <p>Current version: {version}</p>}
       <p className="hint">
         Piyo checks for a new version when it starts and never installs one without you pressing Install. Every
         download is verified against Piyo's update key before it is installed; a file that does not match is refused.

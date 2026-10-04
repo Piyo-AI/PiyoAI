@@ -14,6 +14,16 @@ export type UpdateState =
 
 type Pending = import("@tauri-apps/plugin-updater").Update;
 
+/** The version of the running app (null in a plain browser). */
+export function useAppVersion(): string | null {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    if (!inTauri()) return;
+    import("@tauri-apps/api/app").then((app) => app.getVersion()).then(setVersion, () => undefined);
+  }, []);
+  return version;
+}
+
 /**
  * Checks for a new version and installs it. The updater only accepts a download whose signature matches the
  * public key in tauri.conf.json, so a tampered or wrongly signed file is refused before anything is installed.

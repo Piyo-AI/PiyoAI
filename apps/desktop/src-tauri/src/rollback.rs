@@ -110,12 +110,27 @@ pub fn check_on_start(app: AppHandle) {
     }
 }
 
+/// Appends a line to `rollback.log` next to the update state, so a rollback that stalls can be diagnosed.
+fn log(app: &AppHandle, message: &str) {
+    use std::io::Write;
+    let Some(path) = state_path(app).map(|p| p.with_file_name("rollback.log")) else { return };
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "{secs} {message}");
+    }
+}
+
 fn offer(app: &AppHandle, current: &str, from: &str) {
+    log(app, &format!("offering rollback {current} -> {from}"));
     let go_back = app
         .dialog()
         .message(format!(
-            "Piyo {current} did not start properly after the last update.\n\nGo back to version {from}? \
-             Piyo downloads it, checks it, installs it and restarts."
+            "Piyo {current} did not start properly after the last update.
+
+Go back to version {from}?              Piyo downloads it, checks it, installs it and restarts."
         ))
         .title("Piyo update problem")
         .kind(MessageDialogKind::Warning)
@@ -124,19 +139,27 @@ fn offer(app: &AppHandle, current: &str, from: &str) {
             format!("Keep {current}"),
         ))
         .blocking_show();
+    log(app, &format!("user chose {}", if go_back { "go back" } else { "keep" }));
     if !go_back {
         return;
     }
-    if let Err(e) = tauri::async_runtime::block_on(install_previous(app, from)) {
-        app.dialog()
-            .message(format!(
-                "Could not go back to version {from}: {e}\n\nYou can download it from \
-                 https://github.com/{REPO}/releases and install it over this one."
-            ))
-            .title("Piyo update problem")
-            .kind(MessageDialogKind::Error)
-            .blocking_show();
-    }
+    // Run the install on the async runtime, as the update from Settings does (a plain thread stalled here).
+    let app = app.clone();
+    let from = from.to_string();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = install_previous(&app, &from).await {
+            log(&app, &format!("rollback failed: {e}"));
+            app.dialog()
+                .message(format!(
+                    "Could not go back to version {from}: {e}
+
+You can download it from                      https://github.com/{REPO}/releases and install it over this one."
+                ))
+                .title("Piyo update problem")
+                .kind(MessageDialogKind::Error)
+                .show(|_| {});
+        }
+    });
 }
 
 /// Reinstalls `version` from its own release. The updater normally refuses an older version; here the only
@@ -144,6 +167,7 @@ fn offer(app: &AppHandle, current: &str, from: &str) {
 async fn install_previous(app: &AppHandle, version: &str) -> Result<(), String> {
     let url = format!("https://github.com/{REPO}/releases/download/v{version}/latest.json");
     let wanted = version.to_string();
+    log(app, &format!("checking {url}"));
     let updater = app
         .updater_builder()
         .endpoints(vec![url.parse().map_err(|e| format!("{e}"))?])
@@ -156,10 +180,12 @@ async fn install_previous(app: &AppHandle, version: &str) -> Result<(), String> 
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("version {version} is not available"))?;
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|e| e.to_string())?;
+    log(app, &format!("found {}; downloading", update.version));
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
+    log(app, &format!("downloaded {} bytes; launching the installer (the app exits next)", bytes.len()));
+    update.install(bytes).map_err(|e| e.to_string())?;
+    // On Windows `install` exits the app; elsewhere the new version needs a restart.
+    log(app, "installed; restarting");
     app.restart()
 }
 
