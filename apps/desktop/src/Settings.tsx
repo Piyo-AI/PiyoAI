@@ -551,7 +551,8 @@ function Folders() {
     <section className="folders">
       <h3>Folders Piyo may use</h3>
       <p className="hint">
-        Piyo can only read or change files inside these folders. Reading is always allowed. Deleting and
+        Piyo keeps the files it creates in its workspace folder unless you name another folder. It can only read or
+        change files inside the folders below. Reading is always allowed. Deleting and
         replacing existing files always ask you first. For everything else, choose per folder whether Piyo may go
         ahead or must ask each time.
       </p>
@@ -561,11 +562,15 @@ function Folders() {
           <li key={f.path}>
             <div className="row-head">
               <span>{f.path}</span>
-              <button className="ghost danger" onClick={() => save(folders.filter((x) => x.path !== f.path))}>
-                Remove
-              </button>
+              {f.workspace ? (
+                <span className="hint">Piyo's workspace</span>
+              ) : (
+                <button className="ghost danger" onClick={() => save(folders.filter((x) => x.path !== f.path))}>
+                  Remove
+                </button>
+              )}
             </div>
-            <label className="check">
+            {!f.workspace && <label className="check">
               <input
                 type="checkbox"
                 checked={f.auto_changes}
@@ -574,7 +579,7 @@ function Folders() {
                 }
               />
               Create folders and move or add files here without asking
-            </label>
+            </label>}
           </li>
         ))}
         {folders.length === 0 && <li className="muted">No folders yet.</li>}

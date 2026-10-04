@@ -24,6 +24,15 @@ def data_dir() -> Path:
     return path
 
 
+def workspace_dir() -> Path:
+    """Where Piyo puts files it creates when the user has not named a folder: `~/Piyo`.
+
+    Overridable with PIYO_WORKSPACE_DIR. Not created here; the file tools create it on first use.
+    """
+    override = os.environ.get("PIYO_WORKSPACE_DIR")
+    return Path(override).expanduser() if override else Path.home() / "Piyo"
+
+
 def skills_dir() -> Path:
     path = data_dir() / "skills"
     path.mkdir(parents=True, exist_ok=True)

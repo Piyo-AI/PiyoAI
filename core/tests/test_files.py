@@ -233,10 +233,11 @@ async def test_gate_blocks_unapproved_move(env, tmp_path):
 def test_folders_api(tmp_path):
     client = TestClient(create_app("tok"))
     h = {"Authorization": "Bearer tok"}
-    assert client.get("/api/folders", headers=h).json() == {"folders": []}
+    ws = {"path": str((tmp_path / "piyo-workspace").resolve()), "auto_changes": True, "workspace": True}
+    assert client.get("/api/folders", headers=h).json() == {"folders": [ws]}
     entry = {"path": str(tmp_path), "auto_changes": True}
     assert client.put("/api/folders", headers=h, json={"folders": [entry]}).status_code == 200
-    expected = [{"path": str(tmp_path.resolve()), "auto_changes": True}]
+    expected = [{"path": str(tmp_path.resolve()), "auto_changes": True, "workspace": False}, ws]
     assert client.get("/api/folders", headers=h).json()["folders"] == expected
     bad = client.put("/api/folders", headers=h, json={"folders": [{"path": "relative"}]})
     assert bad.status_code == 400
@@ -319,3 +320,42 @@ def test_downloads_organizer_skill_is_valid_and_its_tools_exist(tmp_path):
     for name in skill.manifest.requires.tools:
         assert registry.get(name) is not None, name
     assert "files.delete" not in skill.manifest.requires.tools
+
+
+@pytest.fixture
+def ws_env(tmp_path):
+    ws = tmp_path / "Piyo"  # deliberately not created: the tools create it on first use
+    folders = ApprovedFolders(tmp_path / "folders.json", workspace=ws)
+    tools = {t.name: t for t in file_tools(folders)}
+    ctx = RunContext(skills=SkillRegistry(builtin_dir=tmp_path / "a", user_dir=tmp_path / "b"))
+    return ws, folders, tools, ctx
+
+
+async def test_relative_path_goes_to_workspace_and_creates_it(ws_env):
+    ws, _, tools, ctx = ws_env
+    await tools["files.write"].handler({"path": "notes/../todo.txt", "content": "hi"}, ctx)
+    assert (ws / "todo.txt").read_text() == "hi"
+
+
+async def test_relative_path_cannot_escape_workspace(ws_env):
+    _, _, tools, ctx = ws_env
+    with pytest.raises(Exception, match="outside"):
+        await tools["files.write"].handler({"path": "../escape.txt", "content": "x"}, ctx)
+
+
+def test_workspace_is_approved_without_asking_but_overwrite_asks(ws_env):
+    ws, folders, tools, _ = ws_env
+    assert [(g.path, g.auto_changes) for g in folders.list()] == [(ws.resolve(), True)]
+    assert tools["files.write"].risk_for({"path": "a.txt"}) is Risk.AUTO
+    assert tools["files.write"].risk_for({"path": "a.txt", "overwrite": True}) is Risk.CONFIRM
+    assert tools["files.delete"].risk is Risk.CONFIRM
+
+
+def test_workspace_is_never_stored_or_removable(ws_env, tmp_path):
+    ws, folders, _, _ = ws_env
+    other = tmp_path / "other"
+    other.mkdir()
+    out = folders.set([FolderGrant(ws), FolderGrant(other)])  # ws does not exist yet: still accepted
+    assert [g.path for g in out] == [other.resolve(), ws.resolve()]
+    assert "Piyo" not in folders.path.read_text()
+    assert [g.path for g in folders.set([])] == [ws.resolve()]

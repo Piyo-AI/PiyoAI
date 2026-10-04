@@ -14,7 +14,7 @@ from pydantic import BaseModel, ValidationError
 
 from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
-from piyo.config import data_dir
+from piyo.config import data_dir, workspace_dir
 from piyo.config.browser_rules import BrowserRules
 from piyo.config.folders import ApprovedFolders, FolderGrant
 from piyo.config.model_limits import ContextLimits, ModelLimits
@@ -309,6 +309,7 @@ class SkillsOut(BaseModel):
 class FolderEntry(BaseModel):
     path: str
     auto_changes: bool = False
+    workspace: bool = False  # Piyo's own folder: always there, shown in Settings, not removable
 
 
 class SearchOut(BaseModel):
@@ -552,9 +553,12 @@ class TitleIn(BaseModel):
     title: str
 
 
-def grants_out(grants: list[FolderGrant]) -> FoldersIn:
+def grants_out(grants: list[FolderGrant], workspace: Path | None = None) -> FoldersIn:
     return FoldersIn(
-        folders=[FolderEntry(path=str(g.path), auto_changes=g.auto_changes) for g in grants]
+        folders=[
+            FolderEntry(path=str(g.path), auto_changes=g.auto_changes, workspace=g.path == workspace)
+            for g in grants
+        ]
     )
 
 
@@ -597,7 +601,7 @@ def create_app(
     reported: dict[tuple[str, str], int] = {}
     reported_context: dict[tuple[str, str], int] = {}  # context windows, same source
     reported_vision: dict[tuple[str, str], bool] = {}
-    folders = ApprovedFolders()
+    folders = ApprovedFolders(workspace=workspace_dir())
     memory = memory or MemoryStore()
     tools = ToolRegistry(
         core_tools()
@@ -709,13 +713,13 @@ def create_app(
 
     @app.get("/api/folders", dependencies=auth)
     def get_folders() -> FoldersIn:
-        return grants_out(folders.list())
+        return grants_out(folders.list(), folders.workspace)
 
     @app.put("/api/folders", dependencies=auth)
     def set_folders(body: FoldersIn) -> FoldersIn:
         try:
             grants = [FolderGrant(Path(f.path), f.auto_changes) for f in body.folders]
-            return grants_out(folders.set(grants))
+            return grants_out(folders.set(grants), folders.workspace)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
 

@@ -27,6 +27,7 @@ def isolated(tmp_path, monkeypatch):
     """Never touch the real keychain, data dir, or developer API keys in tests."""
     # A subfolder: tests approve folders under tmp_path; Piyo's data folder is off limits to file tools.
     monkeypatch.setenv("PIYO_DATA_DIR", str(tmp_path / "piyo-data"))
+    monkeypatch.setenv("PIYO_WORKSPACE_DIR", str(tmp_path / "piyo-workspace"))  # never the real ~/Piyo
     for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY",
                 "DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "GEMINI_API_KEY",
                 "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"):

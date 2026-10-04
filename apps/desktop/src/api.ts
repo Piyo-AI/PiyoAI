@@ -375,6 +375,8 @@ export interface FolderEntry {
   path: string;
   /** Creating folders, moving and writing new files here need no per-call approval. Delete and overwrite always ask. */
   auto_changes: boolean;
+  /** Piyo's own folder (~/Piyo): always present and not removable; new files go here when no folder is named. */
+  workspace?: boolean;
 }
 
 interface Connection {

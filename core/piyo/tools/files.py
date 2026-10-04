@@ -1,4 +1,6 @@
-"""File tools, limited to folders the user approved in Settings.
+"""File tools, limited to folders the user approved in Settings and Piyo's workspace (`~/Piyo`).
+
+A relative path means "in the workspace", so a task that names no folder puts its files there.
 
 Paths are resolved (symlinks and `..` followed) before the folder check, so a link inside an
 approved folder can't lead outside it. Reads are `auto`. Changes are `confirm` unless the folder is
@@ -40,13 +42,18 @@ class FileTools:
         if not isinstance(raw, str) or not raw.strip():
             raise FileAccessError("A path is required.")
         path = Path(raw).expanduser()
+        workspace = self._folders.workspace
         if not path.is_absolute():
-            raise FileAccessError(f"Use a full path, not {raw!r}.")
+            if workspace is None:
+                raise FileAccessError(f"Use a full path, not {raw!r}.")
+            path = workspace / path
         path = path.resolve()
         for root in roots:
             if path == root or path.is_relative_to(root):
                 if reason := protected_reason(path):
                     raise FileAccessError(f"Piyo does not touch {raw}: {reason}.")
+                if root == workspace:
+                    workspace.mkdir(parents=True, exist_ok=True)  # created on first use
                 return path, root
         approved = ", ".join(str(r) for r in roots)
         raise FileAccessError(f"{raw} is outside the approved folders ({approved}).")
@@ -91,7 +98,14 @@ class FileTools:
         grants = self._folders.list()
         if not grants:
             return "No folders are approved for file access. Ask the user to add one in Settings."
-        lines = ["Approved folders (reading is always allowed in them):"]
+        workspace = self._folders.workspace
+        lines = []
+        if workspace is not None:
+            lines.append(
+                f"Your workspace is {workspace}. Save new files and folders there unless the user "
+                "names another approved folder; a relative path such as notes/todo.txt means the workspace."
+            )
+        lines.append("Approved folders (reading is always allowed in them):")
         for g in grants:
             if g.auto_changes:
                 mode = "creating folders, moving files and writing new files need no approval"
@@ -188,7 +202,10 @@ class FileTools:
 
 def file_tools(folders: ApprovedFolders) -> list[Tool]:
     impl = FileTools(folders)
-    path = {"type": "string", "description": "Full path inside an approved folder"}
+    path = {
+        "type": "string",
+        "description": "Full path inside an approved folder, or a relative path (inside the workspace)",
+    }
 
     def schema(required: list[str], **props: dict) -> dict:
         return {"type": "object", "properties": props, "required": required}
