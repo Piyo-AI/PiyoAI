@@ -47,7 +47,9 @@ jobs:
       matrix:
         include:
           - { name: Windows x64, os: windows-latest, bundles: "nsis" }
-          - { name: macOS Apple Silicon, os: macos-latest, bundles: "dmg" }
+          # `app` as well as `dmg`: the updater needs the .app.tar.gz (and its .sig) that only the app bundle produces,
+          # without it latest.json has no macOS entry and Macs are never offered an update.
+          - { name: macOS Apple Silicon, os: macos-latest, bundles: "app,dmg" }
           - { name: Linux x64, os: ubuntu-22.04, bundles: "appimage,deb,rpm" }
     steps:
       - uses: actions/checkout@v4
@@ -123,5 +125,6 @@ jobs:
             apps/desktop/src-tauri/target/release/bundle/*/*.AppImage
             apps/desktop/src-tauri/target/release/bundle/*/*.deb
             apps/desktop/src-tauri/target/release/bundle/*/*.rpm
+            apps/desktop/src-tauri/target/release/bundle/*/*.tar.gz
             apps/desktop/src-tauri/target/release/bundle/*/*.sig
           if-no-files-found: error
