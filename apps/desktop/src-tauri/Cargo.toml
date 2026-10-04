@@ -1,6 +1,6 @@
 [package]
 name = "piyo-desktop"
-version = "0.1.5"
+version = "0.2.0"
 description = "Piyo AI desktop app"
 authors = ["Piyo AI"]
 license = "MIT"
