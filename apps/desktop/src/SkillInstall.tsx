@@ -27,6 +27,8 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
   const [browsing, setBrowsing] = useState(false);
   const [gitOpen, setGitOpen] = useState(false);
   const [gitUrl, setGitUrl] = useState("");
+  const [hasToken, setHasToken] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
   const [gitChoice, setGitChoice] = useState<GitStage | null>(null);
   const [updates, setUpdates] = useState<Catalog["skills"]>([]);
 
@@ -42,6 +44,31 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (gitOpen) api.gitTokenStatus().then((r) => setHasToken(r.has_token)).catch(() => {});
+  }, [gitOpen]);
+
+  const saveToken = async () => {
+    setError(null);
+    try {
+      await api.setGitToken(tokenInput);
+      setTokenInput("");
+      setHasToken(true);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const removeToken = async () => {
+    setError(null);
+    try {
+      await api.deleteGitToken();
+      setHasToken(false);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const stageGit = async (folder?: string) => {
     setError(null);
@@ -174,6 +201,33 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
               Look up
             </button>
           </div>
+          <details className="hint">
+            <summary>Private repository{hasToken ? " (access token saved)" : ""}</summary>
+            <p>
+              For a private repository, create a fine-grained access token on GitHub that can only read that repository's
+              contents, and paste it here. It is kept in your operating system's keychain and is only sent to GitHub, never
+              shown again, and used only when you install from a GitHub address.
+            </p>
+            {hasToken ? (
+              <button type="button" className="ghost" onClick={removeToken}>
+                Remove the saved token
+              </button>
+            ) : (
+              <div className="memory-add">
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="GitHub access token"
+                  aria-label="GitHub access token"
+                />
+                <button type="button" disabled={!tokenInput.trim()} onClick={saveToken}>
+                  Save token
+                </button>
+              </div>
+            )}
+          </details>
           {gitChoice && gitChoice.choose.length > 0 && (
             <>
               <p>This address has several skills. Which one?</p>

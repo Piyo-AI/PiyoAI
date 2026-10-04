@@ -26,6 +26,8 @@ _SHA = re.compile(r"[0-9a-f]{40}")
 _GITHUB_URL = re.compile(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")
 SCHEMAS = (1, 2)  # index versions this app reads; 2 added category, badge, revoked and external sources
 _HOSTS = {"api.github.com", "raw.githubusercontent.com", "codeload.github.com"}
+# The only hosts a GitHub token may be sent to (never raw.githubusercontent.com, used by the public catalog).
+_TOKEN_HOSTS = {"api.github.com", "codeload.github.com"}
 
 
 class CatalogError(RuntimeError):
@@ -114,8 +116,10 @@ class CatalogClient:
         branch: str = BRANCH,
         transport: httpx.AsyncBaseTransport | None = None,
         verify_signature: bool = True,
+        token: str | None = None,
     ) -> None:
         self.repo, self.branch, self._transport = repo, branch, transport
+        self._token = token  # for a private repository the user named; the public catalog is never given one
         # Only the catalog itself is signed. `git_source` reuses this client to download a repo the user named
         # and never reads an index, so it turns this off.
         self.verify_signature = verify_signature
@@ -125,6 +129,8 @@ class CatalogClient:
         if not url.startswith("https://") or host not in _HOSTS:
             raise CatalogError("Refusing to contact an unexpected address.")
         headers = {"User-Agent": "PiyoAI", **({"Accept": accept} if accept else {})}
+        if self._token and host in _TOKEN_HOSTS:
+            headers["Authorization"] = f"Bearer {self._token}"
         try:
             async with (
                 httpx.AsyncClient(
@@ -132,8 +138,17 @@ class CatalogClient:
                 ) as client,
                 client.stream("GET", url) as res,
             ):
+                if res.status_code == 401 and self._token:
+                    raise CatalogError(
+                        "GitHub did not accept the access token. Check or replace it in Settings > Skills."
+                    )
                 if res.status_code == 404:
-                    raise CatalogNotFound("The skill catalog was not found. Is the repository public?")
+                    raise CatalogNotFound(
+                        "The repository was not found, or the access token cannot read it."
+                        if self._token
+                        else "The skill catalog was not found. Is the repository public? For a private one, "
+                        "add a GitHub access token in Settings > Skills."
+                    )
                 if res.status_code == 422 and "/commits/" in url:  # GitHub's answer for an unknown ref
                     raise CatalogNotFound("That branch, tag or commit was not found.")
                 if res.status_code in (403, 429):

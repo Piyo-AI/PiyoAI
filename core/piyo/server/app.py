@@ -46,7 +46,7 @@ from piyo.models.turn import Message, stream_turn
 from piyo.runtime import frozen
 from piyo.safety import ApprovalRequest, PermissionGate
 from piyo.scheduler import RuleError, RunResult, Scheduler, SchedulerStore, describe
-from piyo.skills import SkillError, SkillRegistry
+from piyo.skills import SkillError, SkillRegistry, git_token
 from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
 from piyo.skills.editor import TEMPLATE, SkillEditor
 from piyo.skills.git_source import GitChoice, stage_git
@@ -1416,12 +1416,32 @@ def create_app(
             code = 502 if isinstance(e, CatalogError) else 400
             raise HTTPException(status_code=code, detail=str(e)) from None
 
+    @app.get("/api/git-token", dependencies=auth)
+    def git_token_status() -> dict:
+        return {"has_token": bool(git_token.get_token())}
+
+    @app.put("/api/git-token", dependencies=auth, status_code=204)
+    def set_git_token(body: KeyIn) -> None:
+        try:
+            git_token.set_token(body.key)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.delete("/api/git-token", dependencies=auth, status_code=204)
+    def delete_git_token() -> None:
+        git_token.delete_token()
+
     @app.post("/api/skills/install/git", dependencies=auth)
     async def stage_git_skill(body: GitInstallIn) -> GitStageOut:
         """Download a skill from a GitHub address (pinned to a commit) for review, like a zip."""
         try:
             found = await stage_git(
-                lambda repo: CatalogClient(repo, transport=catalog_client._transport, verify_signature=False),
+                lambda repo: CatalogClient(
+                    repo,
+                    transport=catalog_client._transport,
+                    verify_signature=False,
+                    token=git_token.get_token(),
+                ),
                 skill_installer(), body.url, body.folder, body.commit,
             )
         except (CatalogError, InstallError) as e:

@@ -247,3 +247,107 @@ def test_api_choice_and_errors(tmp_path):
     assert again.json()["preview"]["name"] == "b"
     bad = client.post("/api/skills/install/git", json={"url": "https://gitlab.com/o/r"}, headers=AUTH)
     assert bad.status_code == 400 and "github.com" in bad.json()["detail"]
+
+
+# -- private repositories ----------------------------------------------------------------------
+
+TOKEN_VALUE = "ghp_" + "a" * 36
+
+
+def private_github(data: bytes, seen: list):
+    """Answers only a request that carries the token, like a private repository."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.host, request.headers.get("authorization")))
+        if request.headers.get("authorization") == "Bearer wrong":
+            return httpx.Response(401)
+        if request.headers.get("authorization") != f"Bearer {TOKEN_VALUE}":
+            return httpx.Response(404)
+        if request.url.host == "api.github.com":
+            return httpx.Response(200, text=SHA)
+        return httpx.Response(200, content=data)
+
+    return httpx.MockTransport(handler)
+
+
+async def test_a_private_repo_needs_the_token_and_it_goes_only_to_github_hosts(installer):
+    from piyo.skills.catalog import CatalogError
+
+    seen: list = []
+    transport = private_github(archive({"SKILL.md": skill_md()}), seen)
+    with pytest.raises(CatalogError, match="private one, add a GitHub access token"):
+        await stage_git(client_for(transport), installer, "https://github.com/owner/repo")
+
+    seen.clear()
+    def with_token(repo):
+        return CatalogClient(repo, transport=transport, verify_signature=False, token=TOKEN_VALUE)
+
+    preview = await stage_git(with_token, installer, "https://github.com/owner/repo")
+    assert preview.verified is False and preview.source.startswith("git github.com/owner/repo @ ")
+    assert {host for host, _ in seen} == {"api.github.com", "codeload.github.com"}
+    assert all(auth == f"Bearer {TOKEN_VALUE}" for _, auth in seen)
+    assert TOKEN_VALUE not in preview.source
+
+
+async def test_a_wrong_token_and_a_token_that_cannot_read_it_are_told_apart(installer):
+    from piyo.skills.catalog import CatalogError
+
+    transport = private_github(b"", [])
+    def wrong(repo):
+        return CatalogClient(repo, transport=transport, verify_signature=False, token="wrong")
+
+    with pytest.raises(CatalogError, match="did not accept the access token"):
+        await stage_git(wrong, installer, "https://github.com/owner/repo")
+    def other(repo):
+        return CatalogClient(repo, transport=transport, verify_signature=False, token="x" * 30)
+
+    with pytest.raises(CatalogError, match="token cannot read it"):
+        await stage_git(other, installer, "https://github.com/owner/repo")
+
+
+async def test_the_token_is_never_sent_to_another_host():
+    seen: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.host)
+        return httpx.Response(200, content=b"x")
+
+    from piyo.skills.catalog import CatalogError
+
+    client = CatalogClient("owner/repo", transport=httpx.MockTransport(handler), token=TOKEN_VALUE)
+    with pytest.raises(CatalogError, match="unexpected address"):
+        await client._get("https://evil.example.com/x", 100)
+    assert seen == []
+    # the public catalog's own file host is allowed but gets no token
+    headers: list = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        headers.append(request.headers.get("authorization"))
+        return httpx.Response(200, content=b"x")
+
+    client = CatalogClient("owner/repo", transport=httpx.MockTransport(record), token=TOKEN_VALUE)
+    await client._get("https://raw.githubusercontent.com/owner/repo/main/index.json", 100)
+    assert headers == [None]
+
+
+def test_api_git_token_lifecycle_and_use(tmp_path):
+    seen: list = []
+    skills = SkillRegistry(builtin_dir=tmp_path / "none", user_dir=tmp_path / "skills")
+    catalog = CatalogClient(transport=private_github(archive({"SKILL.md": skill_md()}), seen))
+    client = TestClient(server.create_app(TOKEN, skills=skills, catalog=catalog))
+    body = {"url": "https://github.com/owner/repo"}
+
+    assert client.get("/api/git-token", headers=AUTH).json() == {"has_token": False}
+    assert client.post("/api/skills/install/git", json=body, headers=AUTH).status_code == 502
+
+    bad = client.put("/api/git-token", json={"key": "has a space in it, not a token"}, headers=AUTH)
+    assert bad.status_code == 400 and TOKEN_VALUE not in bad.text
+    assert client.put("/api/git-token", json={"key": f"  {TOKEN_VALUE}\n"}, headers=AUTH).status_code == 204
+    status = client.get("/api/git-token", headers=AUTH)
+    assert status.json() == {"has_token": True} and TOKEN_VALUE not in status.text
+
+    res = client.post("/api/skills/install/git", json=body, headers=AUTH)
+    assert res.status_code == 200 and TOKEN_VALUE not in res.text
+    # the public catalog's own requests never carry it
+    assert client.delete("/api/git-token", headers=AUTH).status_code == 204
+    assert client.get("/api/git-token", headers=AUTH).json() == {"has_token": False}
