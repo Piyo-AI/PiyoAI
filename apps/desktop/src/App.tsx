@@ -10,6 +10,7 @@ import { SkillEditor } from "./SkillEditor";
 import { useModelWarnings } from "./useModelWarnings";
 import { useScheduler } from "./useScheduler";
 import { useSkillOffer } from "./useSkillOffer";
+import { Onboarding } from "./Onboarding";
 import { useRollback, useUpdate } from "./useUpdate";
 import { useSetupNeeded } from "./useSetupNeeded";
 import { Tasks } from "./Tasks";
@@ -60,6 +61,7 @@ export default function App() {
   const [wizardSkill, setWizardSkill] = useState<string | null>(null);
   const [showTasks, setShowTasks] = useState(false);
   const [input, setInput] = useState("");
+  const [onboarding, setOnboarding] = useState(false);
   const {
     messages, busy, isStopping, approvals, conversations, hasMoreConversations, loadingConversations,
     loadMoreConversations, conversationId, send, respond, stop, newChat, open, remove,
@@ -84,6 +86,25 @@ export default function App() {
   useEffect(() => {
     loadProviders();
   }, [loadProviders]);
+
+  // First run: show the setup unless it was finished or skipped, or an online provider already has a key
+  // (someone who set Piyo up before this screen existed).
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  useEffect(() => {
+    if (onboardingChecked || providers.length === 0) return;
+    setOnboardingChecked(true);
+    api
+      .onboarding()
+      .then(async ({ done }) => {
+        if (done) return;
+        if (providers.some((p) => p.requires_key && p.has_key)) {
+          await api.setOnboarding(true);
+          return;
+        }
+        setOnboarding(true);
+      })
+      .catch(() => undefined);
+  }, [providers, onboardingChecked]);
 
   // The desktop shell reports a core that died on its own.
   useEffect(() => {
@@ -453,6 +474,20 @@ export default function App() {
       </div>
       </div>
 
+      {onboarding && (
+        <Onboarding
+          providers={providers}
+          onChanged={loadProviders}
+          onChoose={(id, m) => {
+            setProviderId(id);
+            setModel(m);
+          }}
+          onClose={(starter) => {
+            setOnboarding(false);
+            if (starter) send(starter.text, starter.providerId, starter.model);
+          }}
+        />
+      )}
       {showTasks && <Tasks conversationId={conversationId} onClose={() => setShowTasks(false)} />}
       {showSettings && (
         <Settings
@@ -471,6 +506,10 @@ export default function App() {
             setSettingsPage(undefined);
           }}
           onSetup={setWizardSkill}
+          onRunFirstSetup={() => {
+            setShowSettings(false);
+            setOnboarding(true);
+          }}
           refreshKey={wizardSkill}
         />
       )}

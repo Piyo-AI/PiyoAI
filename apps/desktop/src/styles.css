@@ -1044,3 +1044,53 @@ pre.diff {
   width: 100%;
   margin-top: 6px;
 }
+
+.onboarding {
+  max-width: 520px;
+}
+.onboarding .emoji {
+  font-size: 48px;
+  text-align: center;
+}
+.onboarding .choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+.onboarding .choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.onboarding .choice span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.onboarding .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+}
+.onboarding progress {
+  width: 100%;
+}
+.onboarding .link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.onboarding .ok {
+  color: var(--ok);
+}

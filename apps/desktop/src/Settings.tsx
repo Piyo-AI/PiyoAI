@@ -14,6 +14,7 @@ interface Props {
   onChanged: () => void;
   onClose: () => void;
   onSetup: (skill: string) => void; // open a skill's setup wizard
+  onRunFirstSetup: () => void; // run the first-run setup again
   providerId: string; // the chat's current model, used by new scheduled jobs
   model: string;
   onOpenConversation: (id: string) => void;
@@ -30,6 +31,7 @@ export function Settings({
   onChanged,
   onClose,
   onSetup,
+  onRunFirstSetup,
   providerId,
   model,
   onOpenConversation,
@@ -110,6 +112,9 @@ export function Settings({
             </button>
             <button className={`nav-item ${page === "updates" ? "active" : ""}`} onClick={() => go("updates")}>
               Updates
+            </button>
+            <button className="nav-item" onClick={onRunFirstSetup}>
+              Run setup again
             </button>
           </nav>
           <div className="settings-content">

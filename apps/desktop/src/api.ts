@@ -534,7 +534,20 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
+export interface OllamaStatus {
+  /** missing: not running | no_models | ready | pulling | failed */
+  state: "missing" | "no_models" | "ready" | "pulling" | "failed";
+  models: string[];
+  percent: number;
+  message: string;
+  recommended: string;
+}
+
 export const api = {
+  onboarding: () => request<{ done: boolean }>("GET", "/api/onboarding"),
+  setOnboarding: (done: boolean) => request<{ done: boolean }>("PUT", "/api/onboarding", { done }),
+  ollama: () => request<OllamaStatus>("GET", "/api/ollama"),
+  pullOllama: (model?: string) => request<OllamaStatus>("POST", "/api/ollama/pull", { model: model || null }),
   providers: () => request<Provider[]>("GET", "/api/providers"),
   addProvider: (p: NewProvider) => request<Provider>("POST", "/api/providers", p),
   removeProvider: (id: string) => request<void>("DELETE", `/api/providers/${id}`),

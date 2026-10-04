@@ -20,6 +20,7 @@ from piyo.config.folders import ApprovedFolders, FolderGrant
 from piyo.config.model_limits import ContextLimits, ModelLimits
 from piyo.config.model_prices import ModelPrices, Price
 from piyo.config.model_vision import ModelVision
+from piyo.config.onboarding import Onboarding
 from piyo.config.run_settings import RunSettings
 from piyo.config.secrets import delete_secret, get_secret, set_secret
 from piyo.config.skill_state import SkillState
@@ -36,6 +37,7 @@ from piyo.models import (
     list_models,
 )
 from piyo.models.capabilities import ModelCaps, model_issues
+from piyo.models.ollama import RECOMMENDED_MODEL, OllamaSetup, OllamaStatus
 from piyo.models.prompt_tools import native_with_fallback, prompt_turn
 from piyo.models.turn import Message, stream_turn
 from piyo.safety import ApprovalRequest, PermissionGate
@@ -372,6 +374,22 @@ class BrowserOut(BaseModel):
     url: str
 
 
+class OnboardingIO(BaseModel):
+    done: bool
+
+
+class OllamaOut(BaseModel):
+    state: str  # missing | no_models | ready | pulling | failed
+    models: list[str]
+    percent: int
+    message: str
+    recommended: str
+
+
+class OllamaPullIn(BaseModel):
+    model: str | None = None  # None: the recommended one
+
+
 class BrowserInstallOut(BaseModel):
     state: str  # unknown | missing | installed | installing | failed
     percent: int
@@ -575,11 +593,14 @@ def create_app(
     scheduler_store: SchedulerStore | None = None,
     start_scheduler: bool = True,
     catalog: CatalogClient | None = None,
+    ollama: OllamaSetup | None = None,
 ) -> FastAPI:
     google = google or GoogleAuth()
     browser_rules = BrowserRules()
     browser = browser or PlaywrightSession(rules=browser_rules)
     installer = browser_installer or BrowserInstaller()
+    ollama = ollama or OllamaSetup()
+    onboarding = Onboarding()
     registry = registry or ProviderRegistry()
     skills = skills or SkillRegistry()
     skill_state = SkillState()
@@ -620,6 +641,7 @@ def create_app(
     app = FastAPI(title="Piyo Core", version=__version__)
     app.router.add_event_handler("shutdown", browser.close)
     app.router.add_event_handler("shutdown", installer.close)
+    app.router.add_event_handler("shutdown", ollama.close)
     app.state.tools = tools
     app.add_middleware(
         CORSMiddleware,
@@ -983,6 +1005,30 @@ def create_app(
             detail = f"Could not change the browser: {type(e).__name__}"
             raise HTTPException(status_code=500, detail=detail) from None
         return BrowserOut(**vars(browser.status()))
+
+    @app.get("/api/onboarding", dependencies=auth)
+    def get_onboarding() -> OnboardingIO:
+        return OnboardingIO(done=onboarding.done())
+
+    @app.put("/api/onboarding", dependencies=auth)
+    def set_onboarding(body: OnboardingIO) -> OnboardingIO:
+        return OnboardingIO(done=onboarding.set_done(body.done))
+
+    def ollama_out(status: OllamaStatus) -> OllamaOut:
+        return OllamaOut(**vars(status))
+
+    @app.get("/api/ollama", dependencies=auth)
+    async def get_ollama() -> OllamaOut:
+        return ollama_out(await ollama.status(get_provider("ollama").base_url))
+
+    @app.post("/api/ollama/pull", dependencies=auth)
+    async def pull_ollama(body: OllamaPullIn) -> OllamaOut:
+        """The user pressed Download in the setup: this is the only thing that ever starts a pull."""
+        try:
+            base_url = get_provider("ollama").base_url
+            return ollama_out(ollama.start_pull(base_url, body.model or RECOMMENDED_MODEL))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
 
     @app.get("/api/browser/install", dependencies=auth)
     async def get_browser_install() -> BrowserInstallOut:
