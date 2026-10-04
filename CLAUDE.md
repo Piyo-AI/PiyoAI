@@ -155,6 +155,10 @@ Built-in skills go in `skills/<name>/SKILL.md` at the repo root.
 ## Invariants (do not break; add a test when touching them)
 
 1. Risk (`auto` / `confirm` / `never`) is a property of the **tool**, never of a skill. Skills cannot lower it.
+- **Outside text and memory** (`safety/taint.py`). `RunContext.untrusted_text` turns on when a tool that returns text someone else
+  wrote has run (`produces_untrusted`: `web.*`, `browser.*`, `gmail.*`, `calendar.*`, `files.read`, `files.list`, `skill.run_script`) or
+  the chat history holds such a result. `memory.remember` carries a `MemoryGuard` and then needs approval. A new tool must be classified
+  in `tests/test_taint.py` (`OWN_TEXT`, or untrusted by name); a new tool that stores anything persistent from model text needs a guard.
    A tool's own code may relax it per call (`Tool.risk_for`, used by `files.*` for folders the user marked
    `auto_changes`); delete and overwrite never relax.
 2. Every tool call goes through `Agent._execute`: granted-tools check, argument check, gate, then handler.

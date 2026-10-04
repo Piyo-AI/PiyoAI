@@ -25,6 +25,7 @@ from piyo.models.turn import (
 )
 from piyo.safety import PermissionGate
 from piyo.safety.exfil import history_has_private, produces_private_data
+from piyo.safety.taint import history_has_untrusted, produces_untrusted
 from piyo.safety.untrusted import shorten
 from piyo.skills import SkillRegistry
 from piyo.store import RunLog
@@ -124,6 +125,7 @@ class Agent:
         self.active_skills = ctx.active_skills
         ctx.user_text = "\n".join(m.content for m in messages if m.role == "user")
         ctx.private_data = history_has_private(messages)
+        ctx.untrusted_text = history_has_untrusted(messages)
         catalog =self.skills.catalog_prompt(self.model_caps)
         memory = self.memory_prompt() if self.memory_prompt else ""
         started_run = time.monotonic()
@@ -168,6 +170,8 @@ class Agent:
                 output, is_error = await self._execute(call, ctx, done.text)
                 if not is_error and produces_private_data(call.name):
                     ctx.private_data = True  # outbound tools ask from now on (safety/exfil.py)
+                if not is_error and produces_untrusted(call.name):
+                    ctx.untrusted_text = True  # memory.remember asks from now on (safety/taint.py)
                 images =[] if is_error else ctx.take_images()
                 if self.log:
                     self.log.step(

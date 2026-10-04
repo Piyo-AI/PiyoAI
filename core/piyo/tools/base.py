@@ -16,6 +16,7 @@ from piyo.models.turn import Image, ToolSpec
 
 if TYPE_CHECKING:
     from piyo.safety.exfil import OutboundGuard
+    from piyo.safety.taint import MemoryGuard
     from piyo.skills import SkillRegistry
 
 
@@ -43,6 +44,9 @@ class RunContext:
     private_data: bool = False
     user_text: str = ""
     approved_hosts: set[str] = field(default_factory=set)
+    # A tool that returns text written by someone else has run (or an earlier turn holds such a result), for
+    # `safety/taint.py`: notes to memory then ask first.
+    untrusted_text: bool = False
 
     # Pictures tools attached during the current call; the loop moves them onto the tool result message.
     pending_images: list[Image] = field(default_factory=list)
@@ -83,8 +87,9 @@ class Tool:
     # Core tools are always available; the rest must be granted by a loaded skill.
     core: bool = False
     # For calls that carry a model-written address or query out of the computer: asks for approval once the
-    # run has read private data (safety/exfil.py). It can only add a confirmation, never remove one.
-    guard: OutboundGuard | None = None
+    # run has read private data (safety/exfil.py); for notes into memory: once it has read outside text
+    # (safety/taint.py). It can only add a confirmation, never remove one.
+    guard: OutboundGuard | MemoryGuard | None = None
 
     @property
     def wire_name(self) -> str:

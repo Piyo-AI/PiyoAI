@@ -6,6 +6,7 @@ everything. Forgetting is a deletion, so it asks. Recalled text is fenced: it is
 
 from __future__ import annotations
 
+from piyo.safety.taint import MemoryGuard
 from piyo.safety.untrusted import wrap_untrusted
 from piyo.store.memory import MemoryRefused, MemoryStore
 from piyo.tools.base import Risk, RunContext, Tool
@@ -99,6 +100,7 @@ def memory_tools(store: MemoryStore) -> list[Tool]:
             handler=remember,
             summarize=lambda a: f"Remember: {str(a.get('text'))[:200]}",
             core=True,
+            guard=MemoryGuard(),
         ),
         Tool(
             name="memory.forget",
