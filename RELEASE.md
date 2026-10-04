@@ -124,7 +124,8 @@ Open the draft (`gh release view vX.Y.Z --web`, or the Releases page) and check:
 - the notes read well (edit the text in the release if a subject is unclear: the commit history is not changed);
 - every installer is attached, plus `latest.json`. For 0.3.0 the draft held `Piyo.AI_<v>_x64-setup.exe`,
   `Piyo.AI_<v>_aarch64.dmg`, `Piyo.AI_<v>_amd64.AppImage`, `.deb` and `.rpm` (the rpm is named `Piyo.AI-<v>-1.x86_64.rpm`),
-  with a `.sig` next to the Windows and Linux ones;
+  with a `.sig` next to each of them except the `.dmg`; since 0.3.1 there is also `Piyo.AI_aarch64.app.tar.gz` and its `.sig`
+  (no version in that name), the file macOS updates come from;
 - open `latest.json` and look at its `platforms`: each system that should auto-update needs an entry
   (`windows-x86_64`, `linux-x86_64`, `darwin-aarch64`). A missing platform means those users are silently never offered
   the update. History: 0.3.0 and earlier had no macOS entry, because the macOS job built only the `.dmg` and the updater
