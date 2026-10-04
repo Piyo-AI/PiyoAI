@@ -59,7 +59,7 @@ def fake_github(index, archive, seen=None, sha=SHA, status=200):
             return httpx.Response(200, text=sha)
         if url.endswith("/index.json"):
             return httpx.Response(200, content=json.dumps(index))
-        if url.startswith("https://codeload.github.com/Piyo-AI/piyo-skills/zip/"):
+        if url.startswith("https://codeload.github.com/"):  # the catalog repo or an external one
             return httpx.Response(200, content=archive)
         return httpx.Response(404)
 
@@ -82,7 +82,7 @@ async def test_fetch_pins_one_commit_and_skips_unreadable_entries(tmp_path):
 
 async def test_newer_schema_and_errors_have_readable_messages(tmp_path):
     with pytest.raises(CatalogError, match="newer version"):
-        await CatalogClient(transport=fake_github({"schema": 2, "skills": []}, b"")).fetch()
+        await CatalogClient(transport=fake_github({"schema": 3, "skills": []}, b"")).fetch()
     with pytest.raises(CatalogError, match="public"):
         await CatalogClient(transport=fake_github({}, b"", status=404)).fetch()
     with pytest.raises(CatalogError, match="limiting"):
@@ -100,6 +100,67 @@ async def test_stage_checks_the_hash_then_the_normal_review_applies(tmp_path, in
     skill = installer.commit(preview.token, preview.added)
     assert skill.manifest.name == "notes"
     assert json.loads((skill.path / ".piyo-install.json").read_text())["source"] == preview.source
+
+
+async def test_schema_2_fields_and_schema_1_defaults(tmp_path):
+    old = entry(tmp_path)
+    new = entry(
+        tmp_path,
+        name="other",
+        category="web",
+        badge="official",
+        revoked=[{"version": "0.9.0", "reason": "bug"}],
+    )
+    catalog = await CatalogClient(transport=fake_github({"schema": 2, "skills": [old, new]}, b"")).fetch()
+    a, b = catalog.skills
+    assert (a.category, a.badge, a.revoked, a.source) == ("other", "community", [], None)
+    assert (b.category, b.badge) == ("web", "official")
+    assert b.revocation("0.9.0").reason == "bug" and b.revocation("1.0.0") is None
+    v1 = await CatalogClient(transport=fake_github({"schema": 1, "skills": [old]}, b"")).fetch()
+    assert [e.name for e in v1.skills] == ["notes"]
+
+
+async def test_a_revoked_version_is_not_downloaded(tmp_path, installer):
+    seen: list[str] = []
+    for revoked in (
+        [{"version": "1.0.0", "reason": "steals nothing, but is broken"}],
+        [{"version": "*", "reason": "gone"}],
+    ):
+        index = {"schema": 2, "skills": [entry(tmp_path, revoked=revoked)]}
+        client = CatalogClient(transport=fake_github(index, repo_zip(FILES), seen))
+        with pytest.raises(Exception, match="withdrew notes 1.0.0"):
+            await client.stage(installer, "notes", SHA)
+    assert not any("codeload" in u for u in seen)
+
+
+async def test_an_external_skill_is_fetched_from_its_pinned_commit(tmp_path, installer):
+    ext_sha = "b" * 40
+    source = {
+        "type": "git",
+        "url": "https://github.com/someone/notes-skill",
+        "commit": ext_sha,
+        "subpath": "skills/notes",
+    }
+    seen: list[str] = []
+    index = {"schema": 2, "skills": [entry(tmp_path, source=source, path="skills/notes")]}
+    archive = repo_zip(FILES, top=f"notes-skill-{ext_sha}")
+    client = CatalogClient(transport=fake_github(index, archive, seen))
+    preview = await client.stage(installer, "notes", SHA)
+    assert any(u == f"https://codeload.github.com/someone/notes-skill/zip/{ext_sha}" for u in seen)
+    assert (
+        preview.source == f"catalog Piyo-AI/piyo-skills @ {SHA[:7]}, from someone/notes-skill @ {ext_sha[:7]}"
+    )
+
+
+async def test_a_bad_external_source_is_skipped_not_followed(tmp_path):
+    bad = [
+        {"type": "git", "url": "https://evil.example/x/y", "commit": "b" * 40},
+        {"type": "git", "url": "https://github.com/a/b", "commit": "main"},  # a branch can move
+        {"type": "svn", "url": "https://github.com/a/b", "commit": "b" * 40},
+    ]
+    index = {"schema": 2, "skills": [entry(tmp_path, source=s) for s in bad]}
+    catalog = await CatalogClient(transport=fake_github(index, b"")).fetch()
+    assert catalog.skills == [] and catalog.skipped == 3
 
 
 async def test_a_tampered_package_is_refused_and_leaves_nothing(tmp_path, installer):
