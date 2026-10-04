@@ -1,10 +1,10 @@
-"""Install a skill from a GitHub address, pinned to one commit (PLAN.md section 5).
+"""Install a skill from a Git address, pinned to one commit (PLAN.md section 5).
 
-Accepted: `https://github.com/<owner>/<repo>`, `.../tree/<ref>` and `.../tree/<ref>/<folder>` (a ref may
-contain slashes, like `feature/x`). The branch or tag is resolved to a commit hash first and that exact
-commit is downloaded as an archive, so nothing moves under the user between the review and the install.
-No `git` program runs, and only api.github.com and codeload.github.com are contacted (the same fixed
-hosts as the catalog). Everything installed this way is unverified.
+Accepted hosts: GitHub, GitLab.com and Codeberg (`git_hosts.py`: how each host's addresses look, e.g.
+`https://github.com/<owner>/<repo>/tree/<ref>/<folder>`; a ref may contain slashes, like `feature/x`). The
+branch or tag is resolved to a commit hash first and that exact commit is downloaded as an archive, so nothing
+moves under the user between the review and the install. No `git` program runs, and only the host's own fixed
+names are contacted. Everything installed this way is unverified.
 """
 
 from __future__ import annotations
@@ -14,28 +14,12 @@ import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from urllib.parse import unquote, urlparse
 
-from piyo.skills.catalog import MAX_DOWNLOAD_BYTES, CatalogClient, CatalogNotFound
+from piyo.skills.catalog import MAX_DOWNLOAD_BYTES, CatalogNotFound
+from piyo.skills.git_hosts import GitAddress, GitClient, parse_address
 from piyo.skills.install import InstallError, Preview, SkillInstaller
 
-_NAME = re.compile(r"[A-Za-z0-9_.-]{1,100}")
 MAX_CHOICES = 30
-
-
-@dataclass
-class GitAddress:
-    repo: str  # owner/name
-    ref: str | None
-    path: str  # folder inside the repo, "" for the root
-    # Everything after `/tree/`. A branch name may contain slashes, so where the ref ends and the folder
-    # starts is only known once GitHub has been asked: `candidates()` lists the splits to try.
-    tree: tuple[str, ...] = ()
-
-    def candidates(self) -> list[tuple[str | None, str]]:
-        if not self.tree:
-            return [(None, "")]
-        return [("/".join(self.tree[:i]), "/".join(self.tree[i:])) for i in range(1, len(self.tree) + 1)]
 
 
 @dataclass
@@ -46,39 +30,13 @@ class GitChoice:
     folders: list[str]
 
 
-def parse_address(url: str) -> GitAddress:
-    parsed = urlparse(url.strip())
-    if parsed.scheme != "https" or parsed.hostname not in ("github.com", "www.github.com") or parsed.port:
-        raise InstallError("Only https://github.com/... addresses are supported for now.")
-    if parsed.username or parsed.password or parsed.query:
-        raise InstallError("Use the plain address of the repository, without a login or parameters.")
-    parts = [unquote(p) for p in parsed.path.split("/") if p]
-    if len(parts) < 2:
-        raise InstallError(
-            "That address needs an owner and a repository, like https://github.com/owner/repo."
-        )
-    owner, name = parts[0], parts[1].removesuffix(".git")
-    ref, folder, tree = None, "", ()
-    if len(parts) > 2:
-        if parts[2] != "tree" or len(parts) < 4:
-            raise InstallError(
-                "Use the repository address, or one that points to a folder (.../tree/<branch>/<folder>)."
-            )
-        ref, folder, tree = parts[3], "/".join(parts[4:]), tuple(parts[3:])
-    if not _NAME.fullmatch(owner) or not _NAME.fullmatch(name):
-        raise InstallError("That does not look like a GitHub repository address.")
-    if any(".." in s for s in tree) or ".." in PurePosixPath(folder).parts:
-        raise InstallError("That folder path is not allowed.")
-    return GitAddress(f"{owner}/{name}", ref, folder, tree)
-
-
 def skill_folders(data: bytes) -> list[str]:
     """Folders (relative to the repository root) that hold a SKILL.md, shallowest first."""
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             names = zf.namelist()
     except zipfile.BadZipFile:
-        raise InstallError("GitHub sent something that is not a zip.") from None
+        raise InstallError("The host sent something that is not a zip.") from None
     found = []
     for name in names:
         parts = PurePosixPath(name).parts
@@ -87,12 +45,12 @@ def skill_folders(data: bytes) -> list[str]:
     return sorted(set(found), key=lambda f: (f.count("/"), f))
 
 
-async def _resolve_address(client: CatalogClient, address: GitAddress) -> tuple[str, str]:
+async def _resolve_address(client: GitClient, address: GitAddress) -> tuple[str, str]:
     """The commit and the folder: tries the shortest ref first, then longer ones (branches with slashes)."""
     error: CatalogNotFound | None = None
     for ref, path in address.candidates():
         try:
-            return await client._resolve(ref or "HEAD"), path
+            return await client.resolve(address.repo, ref), path
         except CatalogNotFound as e:
             error = e
     raise error or InstallError("That address could not be resolved.")
@@ -101,15 +59,17 @@ async def _resolve_address(client: CatalogClient, address: GitAddress) -> tuple[
 async def stage_git(
     client_for, installer: SkillInstaller, url: str, folder: str | None = None, commit: str | None = None
 ) -> Preview | GitChoice:
-    """Resolve, download and stage; returns the review, or the list of skills to choose from."""
+    """Resolve, download and stage; returns the review, or the list of skills to choose from.
+
+    `client_for(host)` makes the `GitClient` for that host (the server adds the user's token there)."""
     address = parse_address(url)
-    client: CatalogClient = client_for(address.repo)
+    client: GitClient = client_for(address.host)
     if commit is not None and not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise InstallError("That is not a commit.")
     path = address.path
     if commit is None:
         commit, path = await _resolve_address(client, address)
-    data = await client._get(f"https://codeload.github.com/{address.repo}/zip/{commit}", MAX_DOWNLOAD_BYTES)
+    data = await client.archive(address.repo, commit)
     wanted = path if folder is None else folder.strip("/")
     if folder is None and not path:
         folders = skill_folders(data)
@@ -119,5 +79,5 @@ async def stage_git(
             if len(folders) > 1:
                 return GitChoice(commit, folders[:MAX_CHOICES])
             wanted = folders[0]
-    source = f"git github.com/{address.repo} @ {commit[:7]}" + (f" ({wanted})" if wanted else "")
+    source = f"git {address.host.domain}/{address.repo} @ {commit[:7]}" + (f" ({wanted})" if wanted else "")
     return installer.stage_zip(data, subpath=wanted, source=source, max_zip_bytes=MAX_DOWNLOAD_BYTES)

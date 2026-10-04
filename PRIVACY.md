@@ -19,6 +19,9 @@ your computer. API keys and tokens are stored in your operating system's keychai
   and Google features talk to Google using your own OAuth client.
 - **The skill catalog and updates.** Browsing the catalog and installing a skill downloads files from GitHub;
   checking for an update contacts GitHub. Neither sends your data. GitHub sees your IP address as any website does.
+- **Installing from a Git address.** If you paste an address on GitHub, GitLab.com or Codeberg, Piyo contacts that one
+  site to find the commit and download it. If you saved an access token for a private repository, it is kept in your
+  keychain and sent only to that site, only for those downloads. Nothing else about you is sent.
 - **Script runtimes.** The first time a skill script needs `uv` (Python) or Deno (JavaScript and TypeScript), Piyo downloads
   that program from its official GitHub release (about 20 and 45 MB), and only runs it after the file matches a fingerprint
   built into Piyo. The approval card for that script tells you the first run will download it. Nothing about you is sent.

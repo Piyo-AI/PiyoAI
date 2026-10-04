@@ -30,12 +30,15 @@ Piyo asks for only the access you tick: read, drafts, send, calendar.
 
 ## Installing a skill
 
-Settings > Skills has three ways in (the buttons are **Browse skills**, **From GitHub** and **Install a skill from a file**):
+Settings > Skills has three ways in (the buttons are **Browse skills**, **From a Git address** and **Install a skill from a file**):
 
 - **Browse skills**: the catalog of reviewed skills. Each shows who made it, a badge (Official, Verified
   publisher or Community), what it can use as chips, and what it needs. The catalog is signed and each download is
   checked against its fingerprint, so a changed file is refused.
-- **From GitHub**: paste a repository address. These skills are marked **unverified**.
+- **From a Git address**: paste a repository address on GitHub, GitLab.com or Codeberg (the repository itself, or a
+  link to a branch or folder). Piyo downloads one exact commit. For a private repository, open **Private
+  repositories** there and save a read-only access token for that site; it stays in your keychain and is sent only
+  to that site. These skills are marked **unverified**.
 - **Install a skill from a file**: a `.piyoskill` file or a zip. Also **unverified**.
 
 Before anything is installed you see a review card: the tools the skill wants, any scripts it will run, any keys
@@ -50,7 +53,7 @@ has no real sandbox, so Piyo asks you before every run of a script from a skill 
 
 When Piyo starts and when you close Settings, it checks the catalog. A skill with a newer version is listed with
 any new permissions. If the catalog withdraws a version (a bug or a safety problem), Piyo switches that skill off
-once and shows why; you can switch it back on or uninstall it. Skills you installed from a file or a GitHub address
+once and shows why; you can switch it back on or uninstall it. Skills you installed from a file or a Git address
 are never changed by the catalog.
 
 ## Writing your own

@@ -10,7 +10,8 @@ from test_skill_install import skill_md
 from piyo.server import app as server
 from piyo.skills import SkillRegistry
 from piyo.skills.catalog import CatalogClient
-from piyo.skills.git_source import GitChoice, parse_address, skill_folders, stage_git
+from piyo.skills.git_hosts import GitClient, parse_address
+from piyo.skills.git_source import GitChoice, skill_folders, stage_git
 from piyo.skills.install import InstallError, SkillInstaller
 
 SHA = "b" * 40
@@ -40,8 +41,8 @@ def github(data: bytes, seen=None, status=200):
     return httpx.MockTransport(handler)
 
 
-def client_for(transport):
-    return lambda repo: CatalogClient(repo, transport=transport)
+def client_for(transport, token=None):
+    return lambda host: GitClient(host, transport=transport, token=token)
 
 
 @pytest.fixture
@@ -71,7 +72,9 @@ def test_addresses_are_understood(url, expected):
     "url",
     [
         "http://github.com/owner/repo",
-        "https://gitlab.com/owner/repo",
+        "https://bitbucket.org/owner/repo",
+        "https://gitlab.com.evil.example/owner/repo",
+        "https://codeberg.org.evil.example/owner/repo",
         "https://evil.example/github.com/owner/repo",
         "https://github.com.evil.example/owner/repo",
         "https://user:pw@github.com/owner/repo",
@@ -191,7 +194,7 @@ async def test_failures_are_readable(installer, tmp_path):
         await stage_git(client_for(github(b"")), installer, "https://github.com/owner/repo", "x", "main")
     from piyo.skills.catalog import CatalogError
 
-    with pytest.raises(CatalogError, match="public"):
+    with pytest.raises(CatalogError, match="private"):
         await stage_git(client_for(github(b"", status=404)), installer, "https://github.com/owner/repo")
     staging = tmp_path / "work" / "staging"
     assert not staging.exists() or not any(staging.iterdir())
@@ -245,7 +248,7 @@ def test_api_choice_and_errors(tmp_path):
         headers=AUTH,
     )
     assert again.json()["preview"]["name"] == "b"
-    bad = client.post("/api/skills/install/git", json={"url": "https://gitlab.com/o/r"}, headers=AUTH)
+    bad = client.post("/api/skills/install/git", json={"url": "https://bitbucket.org/o/r"}, headers=AUTH)
     assert bad.status_code == 400 and "github.com" in bad.json()["detail"]
 
 
@@ -275,14 +278,11 @@ async def test_a_private_repo_needs_the_token_and_it_goes_only_to_github_hosts(i
 
     seen: list = []
     transport = private_github(archive({"SKILL.md": skill_md()}), seen)
-    with pytest.raises(CatalogError, match="private one, add a GitHub access token"):
+    with pytest.raises(CatalogError, match="add a GitHub access token"):
         await stage_git(client_for(transport), installer, "https://github.com/owner/repo")
 
     seen.clear()
-    def with_token(repo):
-        return CatalogClient(repo, transport=transport, verify_signature=False, token=TOKEN_VALUE)
-
-    preview = await stage_git(with_token, installer, "https://github.com/owner/repo")
+    preview = await stage_git(client_for(transport, TOKEN_VALUE), installer, "https://github.com/owner/repo")
     assert preview.verified is False and preview.source.startswith("git github.com/owner/repo @ ")
     assert {host for host, _ in seen} == {"api.github.com", "codeload.github.com"}
     assert all(auth == f"Bearer {TOKEN_VALUE}" for _, auth in seen)
@@ -293,41 +293,32 @@ async def test_a_wrong_token_and_a_token_that_cannot_read_it_are_told_apart(inst
     from piyo.skills.catalog import CatalogError
 
     transport = private_github(b"", [])
-    def wrong(repo):
-        return CatalogClient(repo, transport=transport, verify_signature=False, token="wrong")
-
     with pytest.raises(CatalogError, match="did not accept the access token"):
-        await stage_git(wrong, installer, "https://github.com/owner/repo")
-    def other(repo):
-        return CatalogClient(repo, transport=transport, verify_signature=False, token="x" * 30)
-
-    with pytest.raises(CatalogError, match="token cannot read it"):
-        await stage_git(other, installer, "https://github.com/owner/repo")
+        await stage_git(client_for(transport, "wrong"), installer, "https://github.com/owner/repo")
+    with pytest.raises(CatalogError, match="token may not be allowed"):
+        await stage_git(client_for(transport, "x" * 30), installer, "https://github.com/owner/repo")
 
 
 async def test_the_token_is_never_sent_to_another_host():
+    from piyo.skills.catalog import CatalogError
+    from piyo.skills.git_hosts import HOSTS
+
     seen: list = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request.url.host)
         return httpx.Response(200, content=b"x")
 
-    from piyo.skills.catalog import CatalogError
-
-    client = CatalogClient("owner/repo", transport=httpx.MockTransport(handler), token=TOKEN_VALUE)
-    with pytest.raises(CatalogError, match="unexpected address"):
-        await client._get("https://evil.example.com/x", 100)
+    for host in HOSTS.values():
+        client = GitClient(host, transport=httpx.MockTransport(handler), token=TOKEN_VALUE)
+        for url in ("https://evil.example.com/x", "http://" + next(iter(host.api_hosts)) + "/x"):
+            with pytest.raises(CatalogError, match="unexpected address"):
+                await client._get(url, 100)
+        # one host's client will not talk to another host's names either
+        other = next(h for h in HOSTS.values() if h is not host)
+        with pytest.raises(CatalogError, match="unexpected address"):
+            await client._get(f"https://{next(iter(other.api_hosts))}/x", 100)
     assert seen == []
-    # the public catalog's own file host is allowed but gets no token
-    headers: list = []
-
-    def record(request: httpx.Request) -> httpx.Response:
-        headers.append(request.headers.get("authorization"))
-        return httpx.Response(200, content=b"x")
-
-    client = CatalogClient("owner/repo", transport=httpx.MockTransport(record), token=TOKEN_VALUE)
-    await client._get("https://raw.githubusercontent.com/owner/repo/main/index.json", 100)
-    assert headers == [None]
 
 
 def test_api_git_token_lifecycle_and_use(tmp_path):
@@ -337,17 +328,165 @@ def test_api_git_token_lifecycle_and_use(tmp_path):
     client = TestClient(server.create_app(TOKEN, skills=skills, catalog=catalog))
     body = {"url": "https://github.com/owner/repo"}
 
-    assert client.get("/api/git-token", headers=AUTH).json() == {"has_token": False}
+    def saved():
+        listing = client.get("/api/git-tokens", headers=AUTH)
+        assert TOKEN_VALUE not in listing.text
+        return {h["key"]: h["has_token"] for h in listing.json()["hosts"]}
+
+    assert saved() == {"github": False, "gitlab": False, "codeberg": False}
     assert client.post("/api/skills/install/git", json=body, headers=AUTH).status_code == 502
 
-    bad = client.put("/api/git-token", json={"key": "has a space in it, not a token"}, headers=AUTH)
+    bad = client.put("/api/git-tokens/github", json={"key": "has a space in it, not a token"}, headers=AUTH)
     assert bad.status_code == 400 and TOKEN_VALUE not in bad.text
-    assert client.put("/api/git-token", json={"key": f"  {TOKEN_VALUE}\n"}, headers=AUTH).status_code == 204
-    status = client.get("/api/git-token", headers=AUTH)
-    assert status.json() == {"has_token": True} and TOKEN_VALUE not in status.text
+    assert client.put("/api/git-tokens/nowhere", json={"key": TOKEN_VALUE}, headers=AUTH).status_code == 404
+    padded = {"key": "  " + TOKEN_VALUE + chr(10)}
+    assert client.put("/api/git-tokens/github", json=padded, headers=AUTH).status_code == 204
+    assert saved() == {"github": True, "gitlab": False, "codeberg": False}
 
     res = client.post("/api/skills/install/git", json=body, headers=AUTH)
     assert res.status_code == 200 and TOKEN_VALUE not in res.text
-    # the public catalog's own requests never carry it
-    assert client.delete("/api/git-token", headers=AUTH).status_code == 204
-    assert client.get("/api/git-token", headers=AUTH).json() == {"has_token": False}
+    assert client.delete("/api/git-tokens/github", headers=AUTH).status_code == 204
+    assert saved() == {"github": False, "gitlab": False, "codeberg": False}
+
+
+# -- GitLab and Codeberg -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("https://gitlab.com/group/project", ("gitlab", "group/project", None, "")),
+        ("https://gitlab.com/group/sub/deeper/project.git", ("gitlab", "group/sub/deeper/project", None, "")),
+        ("https://gitlab.com/group/project/-/tree/v1.0", ("gitlab", "group/project", "v1.0", "")),
+        (
+            "https://gitlab.com/group/sub/project/-/tree/main/skills/x",
+            ("gitlab", "group/sub/project", "main", "skills/x"),
+        ),
+        ("https://codeberg.org/owner/repo", ("codeberg", "owner/repo", None, "")),
+        (
+            "https://codeberg.org/owner/repo/src/branch/main/skills/x",
+            ("codeberg", "owner/repo", "main", "skills/x"),
+        ),
+        ("https://codeberg.org/owner/repo/src/tag/v2", ("codeberg", "owner/repo", "v2", "")),
+    ],
+)
+def test_gitlab_and_codeberg_addresses_are_understood(url, expected):
+    a = parse_address(url)
+    assert (a.host.key, a.repo, a.ref, a.path) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://gitlab.com/project",
+        "https://gitlab.com/group/project/-/blob/main/x",
+        "https://gitlab.com/group/project/-/tree/main/../x",
+        "https://gitlab.com/group/project?ref=1",
+        "https://codeberg.org/owner/repo/issues/1",
+        "https://codeberg.org/owner/repo/src/branch",
+        "https://codeberg.org/owner/repo/src/other/main/x",
+        "https://git.example.com/owner/repo",
+    ],
+)
+def test_other_gitlab_and_codeberg_addresses_are_refused(url):
+    with pytest.raises(InstallError):
+        parse_address(url)
+
+
+def gitlab(data: bytes, seen: list, token: str | None = None):
+    def handler(request: httpx.Request) -> httpx.Response:
+        h = request.headers
+        seen.append((str(request.url), h.get("private-token"), h.get("authorization")))
+        if token and request.headers.get("private-token") != token:
+            return httpx.Response(404)
+        url = str(request.url)
+        base = "https://gitlab.com/api/v4/projects/group%2Fsub%2Fproject/repository"
+        if url == f"{base}/commits/HEAD" or url == f"{base}/commits/feature%2Fx":
+            return httpx.Response(200, json={"id": SHA, "title": "t"})
+        if url == f"{base}/archive.zip?sha={SHA}":
+            return httpx.Response(200, content=data)
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+async def test_gitlab_default_branch_and_subgroup_project(installer):
+    seen: list = []
+    data = archive({"SKILL.md": skill_md()}, top=f"project-{SHA}-{SHA}")
+    preview = await stage_git(client_for(gitlab(data, seen)), installer, "https://gitlab.com/group/sub/project")
+    assert preview.verified is False
+    assert preview.source == f"git gitlab.com/group/sub/project @ {SHA[:7]}"
+    assert [u for u, _, _ in seen][0].endswith("/commits/HEAD")
+    assert all(pt is None and auth is None for _, pt, auth in seen)  # no token, no auth header
+
+
+async def test_gitlab_branch_with_a_slash_is_encoded_and_found(installer):
+    data = archive({"skills/a/SKILL.md": skill_md()}, top=f"project-{SHA}-{SHA}")
+    preview = await stage_git(
+        client_for(gitlab(data, [])), installer, "https://gitlab.com/group/sub/project/-/tree/feature/x/skills/a"
+    )
+    assert preview.name
+
+
+async def test_gitlab_private_repo_uses_private_token_header_only_there(installer):
+    from piyo.skills.catalog import CatalogError
+
+    seen: list = []
+    data = archive({"SKILL.md": skill_md()}, top=f"project-{SHA}-{SHA}")
+    transport = gitlab(data, seen, token="glpat-" + "q" * 20)
+    with pytest.raises(CatalogError, match="add a GitLab access token"):
+        await stage_git(client_for(transport), installer, "https://gitlab.com/group/sub/project")
+    seen.clear()
+    await stage_git(client_for(transport, "glpat-" + "q" * 20), installer, "https://gitlab.com/group/sub/project")
+    assert {pt for _, pt, _ in seen} == {"glpat-" + "q" * 20} and all(auth is None for _, _, auth in seen)
+
+
+def codeberg(data: bytes, seen: list, token: str | None = None):
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((str(request.url), request.headers.get("authorization")))
+        if token and request.headers.get("authorization") != f"token {token}":
+            return httpx.Response(404)
+        url = str(request.url)
+        base = "https://codeberg.org/api/v1/repos/owner/repo"
+        if url in (f"{base}/git/commits/HEAD", f"{base}/git/commits/v2%2Fx"):
+            return httpx.Response(200, json={"sha": SHA})
+        if url == f"{base}/archive/{SHA}.zip":
+            return httpx.Response(200, content=data)
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+async def test_codeberg_install_and_private_token(installer):
+    from piyo.skills.catalog import CatalogError
+
+    data = archive({"SKILL.md": skill_md()}, top="repo")
+    preview = await stage_git(client_for(codeberg(data, [])), installer, "https://codeberg.org/owner/repo")
+    assert preview.source == f"git codeberg.org/owner/repo @ {SHA[:7]}"
+
+    seen: list = []
+    private = codeberg(data, seen, token="t" * 40)
+    with pytest.raises(CatalogError, match="add a Codeberg access token"):
+        await stage_git(client_for(private), installer, "https://codeberg.org/owner/repo")
+    seen.clear()
+    await stage_git(client_for(private, "t" * 40), installer, "https://codeberg.org/owner/repo")
+    assert {auth for _, auth in seen} == {"token " + "t" * 40}
+
+
+async def test_codeberg_branch_with_a_slash_is_encoded_and_found(installer):
+    data = archive({"skills/a/SKILL.md": skill_md()}, top="repo")
+    preview = await stage_git(
+        client_for(codeberg(data, [])), installer, "https://codeberg.org/owner/repo/src/branch/v2/x/skills/a"
+    )
+    assert preview.name
+
+
+async def test_a_host_answering_with_garbage_is_refused(installer):
+    from piyo.skills.catalog import CatalogError
+
+    transport = httpx.MockTransport(lambda r: httpx.Response(200, content=b'["not", "an", "object"]'))
+    with pytest.raises(CatalogError, match="unexpected answer"):
+        await stage_git(client_for(transport), installer, "https://gitlab.com/group/project")
+    transport = httpx.MockTransport(lambda r: httpx.Response(200, content=b"not json"))
+    with pytest.raises(CatalogError, match="unexpected answer"):
+        await stage_git(client_for(transport), installer, "https://codeberg.org/owner/repo")

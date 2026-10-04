@@ -27,8 +27,8 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
   const [browsing, setBrowsing] = useState(false);
   const [gitOpen, setGitOpen] = useState(false);
   const [gitUrl, setGitUrl] = useState("");
-  const [hasToken, setHasToken] = useState(false);
-  const [tokenInput, setTokenInput] = useState("");
+  const [tokenHosts, setTokenHosts] = useState<{ key: string; name: string; has_token: boolean }[]>([]);
+  const [tokenInput, setTokenInput] = useState<Record<string, string>>({});
   const [gitChoice, setGitChoice] = useState<GitStage | null>(null);
   const [updates, setUpdates] = useState<Catalog["skills"]>([]);
 
@@ -46,25 +46,14 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
   }, []);
 
   useEffect(() => {
-    if (gitOpen) api.gitTokenStatus().then((r) => setHasToken(r.has_token)).catch(() => {});
+    if (gitOpen) api.gitTokens().then((r) => setTokenHosts(r.hosts)).catch(() => {});
   }, [gitOpen]);
 
-  const saveToken = async () => {
+  const changeToken = async (change: () => Promise<void>) => {
     setError(null);
     try {
-      await api.setGitToken(tokenInput);
-      setTokenInput("");
-      setHasToken(true);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  const removeToken = async () => {
-    setError(null);
-    try {
-      await api.deleteGitToken();
-      setHasToken(false);
+      await change();
+      setTokenHosts((await api.gitTokens()).hosts);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -167,7 +156,7 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
         {browsing ? "Hide catalog" : "Browse skills"}
       </button>{" "}
       <button type="button" className="ghost" disabled={busy || preview !== null} onClick={() => setGitOpen(!gitOpen)}>
-        From GitHub
+        From a Git address
       </button>
       {updates.length > 0 && !preview && (
         <div className="banner warn" role="status">
@@ -187,7 +176,7 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
       {gitOpen && !preview && (
         <div className="install-review">
           <p className="hint">
-            Paste a GitHub address: the repository, or a link to a branch or folder. Piyo downloads one exact commit,
+            Paste an address on GitHub, GitLab.com or Codeberg: the repository, or a link to a branch or folder. Piyo downloads one exact commit,
             shows you what it asks for, and installs nothing until you approve. It is not checked by anyone.
           </p>
           <div className="memory-add">
@@ -195,38 +184,52 @@ export function SkillInstall({ onChange }: { onChange: () => void }) {
               value={gitUrl}
               onChange={(e) => setGitUrl(e.target.value)}
               placeholder="https://github.com/owner/repo"
-              aria-label="GitHub address"
+              aria-label="Git address"
             />
             <button type="button" disabled={busy || !gitUrl.trim()} onClick={() => stageGit()}>
               Look up
             </button>
           </div>
           <details className="hint">
-            <summary>Private repository{hasToken ? " (access token saved)" : ""}</summary>
+            <summary>Private repositories{tokenHosts.some((h) => h.has_token) ? " (access token saved)" : ""}</summary>
             <p>
-              For a private repository, create a fine-grained access token on GitHub that can only read that repository's
-              contents, and paste it here. It is kept in your operating system's keychain and is only sent to GitHub, never
-              shown again, and used only when you install from a GitHub address.
+              For a private repository, create an access token on that site that can only read that repository, and paste it
+              here. It is kept in your operating system's keychain, never shown again, and only sent to that site when you
+              install from one of its addresses.
             </p>
-            {hasToken ? (
-              <button type="button" className="ghost" onClick={removeToken}>
-                Remove the saved token
-              </button>
-            ) : (
-              <div className="memory-add">
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="GitHub access token"
-                  aria-label="GitHub access token"
-                />
-                <button type="button" disabled={!tokenInput.trim()} onClick={saveToken}>
-                  Save token
-                </button>
+            {tokenHosts.map((h) => (
+              <div key={h.key} className="memory-add">
+                <span>{h.name}</span>
+                {h.has_token ? (
+                  <button type="button" className="ghost" onClick={() => changeToken(() => api.deleteGitToken(h.key))}>
+                    Remove the saved token
+                  </button>
+                ) : (
+                  <>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={tokenInput[h.key] ?? ""}
+                      onChange={(e) => setTokenInput({ ...tokenInput, [h.key]: e.target.value })}
+                      placeholder={`${h.name} access token`}
+                      aria-label={`${h.name} access token`}
+                    />
+                    <button
+                      type="button"
+                      disabled={!(tokenInput[h.key] ?? "").trim()}
+                      onClick={() =>
+                        changeToken(async () => {
+                          await api.setGitToken(h.key, tokenInput[h.key]);
+                          setTokenInput({ ...tokenInput, [h.key]: "" });
+                        })
+                      }
+                    >
+                      Save token
+                    </button>
+                  </>
+                )}
               </div>
-            )}
+            ))}
           </details>
           {gitChoice && gitChoice.choose.length > 0 && (
             <>

@@ -675,9 +675,9 @@ export const api = {
   acknowledgeWithdrawn: (name: string) => request<void>("POST", `/api/catalog/withdrawn/${name}/acknowledge`),
   stageCatalogSkill: (name: string, commit: string) =>
     request<InstallPreview>("POST", "/api/catalog/install", { name, commit }),
-  gitTokenStatus: () => request<{ has_token: boolean }>("GET", "/api/git-token"),
-  setGitToken: (key: string) => request<void>("PUT", "/api/git-token", { key }),
-  deleteGitToken: () => request<void>("DELETE", "/api/git-token"),
+  gitTokens: () => request<{ hosts: { key: string; name: string; has_token: boolean }[] }>("GET", "/api/git-tokens"),
+  setGitToken: (host: string, key: string) => request<void>("PUT", `/api/git-tokens/${host}`, { key }),
+  deleteGitToken: (host: string) => request<void>("DELETE", `/api/git-tokens/${host}`),
   stageGitSkill: (url: string, folder?: string, commit?: string) =>
     request<GitStage>("POST", "/api/skills/install/git", { url, folder, commit }),
   previewSkillInstall: (zip: ArrayBuffer) => upload<InstallPreview>("/api/skills/install/preview", zip),

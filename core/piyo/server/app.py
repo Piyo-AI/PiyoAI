@@ -49,6 +49,7 @@ from piyo.scheduler import RuleError, RunResult, Scheduler, SchedulerStore, desc
 from piyo.skills import SkillError, SkillRegistry, git_token
 from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
 from piyo.skills.editor import TEMPLATE, SkillEditor
+from piyo.skills.git_hosts import HOSTS, GitClient
 from piyo.skills.git_source import GitChoice, stage_git
 from piyo.skills.helper_tools import NAMES as HELPER_NAMES
 from piyo.skills.helper_tools import HelperTools
@@ -1416,31 +1417,37 @@ def create_app(
             code = 502 if isinstance(e, CatalogError) else 400
             raise HTTPException(status_code=code, detail=str(e)) from None
 
-    @app.get("/api/git-token", dependencies=auth)
-    def git_token_status() -> dict:
-        return {"has_token": bool(git_token.get_token())}
+    @app.get("/api/git-tokens", dependencies=auth)
+    def git_tokens_status() -> dict:
+        """Which Git hosts have a saved access token (never the token itself)."""
+        return {"hosts": [{"key": h.key, "name": h.name, "has_token": t} for h, t in _git_hosts()]}
 
-    @app.put("/api/git-token", dependencies=auth, status_code=204)
-    def set_git_token(body: KeyIn) -> None:
+    def _git_hosts():
+        saved = git_token.saved()
+        return [(h, saved[h.key]) for h in HOSTS.values()]
+
+    @app.put("/api/git-tokens/{host}", dependencies=auth, status_code=204)
+    def set_git_token(host: str, body: KeyIn) -> None:
+        if host not in HOSTS:
+            raise HTTPException(status_code=404, detail="Unknown Git host.")
         try:
-            git_token.set_token(body.key)
+            git_token.set_token(host, body.key)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
 
-    @app.delete("/api/git-token", dependencies=auth, status_code=204)
-    def delete_git_token() -> None:
-        git_token.delete_token()
+    @app.delete("/api/git-tokens/{host}", dependencies=auth, status_code=204)
+    def delete_git_token(host: str) -> None:
+        if host not in HOSTS:
+            raise HTTPException(status_code=404, detail="Unknown Git host.")
+        git_token.delete_token(host)
 
     @app.post("/api/skills/install/git", dependencies=auth)
     async def stage_git_skill(body: GitInstallIn) -> GitStageOut:
-        """Download a skill from a GitHub address (pinned to a commit) for review, like a zip."""
+        """Download a skill from a GitHub, GitLab or Codeberg address (pinned to a commit) for review."""
         try:
             found = await stage_git(
-                lambda repo: CatalogClient(
-                    repo,
-                    transport=catalog_client._transport,
-                    verify_signature=False,
-                    token=git_token.get_token(),
+                lambda host: GitClient(
+                    host, transport=catalog_client._transport, token=git_token.get_token(host.key)
                 ),
                 skill_installer(), body.url, body.folder, body.commit,
             )
