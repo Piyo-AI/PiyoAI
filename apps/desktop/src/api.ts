@@ -397,6 +397,8 @@ export interface MemorySettings {
 /** Finding memories by meaning (EmbeddingGemma 2, downloaded the first time it is turned on). */
 export interface SemanticStatus {
   enabled: boolean;
+  /** False when this system's Python cannot load SQLite extensions; `message` says so. */
+  supported: boolean;
   state: "off" | "missing" | "installing" | "ready" | "failed";
   percent: number;
   message: string;

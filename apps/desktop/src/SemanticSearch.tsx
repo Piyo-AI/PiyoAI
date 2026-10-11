@@ -53,6 +53,7 @@ export function SemanticSearch({ onChange }: { onChange: () => void }) {
         <input
           type="checkbox"
           checked={status.enabled}
+          disabled={!status.supported}
           onChange={(e) => act(() => api.setMemorySemantic(e.target.checked))}
         />
         Find memories by meaning
@@ -63,6 +64,7 @@ export function SemanticSearch({ onChange }: { onChange: () => void }) {
         from github.com and huggingface.co). It then runs on this computer only: your memories never leave it.
       </p>
       {error && <p className="error">{error}</p>}
+      {!status.supported && <p className="hint">{status.message}</p>}
       {status.enabled && status.state === "installing" && (
         <p className="hint">
           {status.message} {status.percent}%

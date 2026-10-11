@@ -21,15 +21,20 @@ from piyo.server import app as server
 from piyo.store import embeddings
 from piyo.store.embeddings import (
     DIMS,
+    UNSUPPORTED,
     EmbeddingError,
     EmbeddingSetup,
     LlamaEmbedder,
     SemanticIndex,
+    can_load_extensions,
     shorten,
 )
 from piyo.store.memory import MemorySettings, MemoryStore
 
 sqlite_vec = pytest.importorskip("sqlite_vec")
+
+# Some interpreters (python.org and Homebrew builds on macOS) are made without SQLite extension loading.
+needs_extensions = pytest.mark.skipif(not can_load_extensions(), reason="no SQLite extension loading")
 
 CONCEPTS = {
     "dog": 0,
@@ -97,6 +102,8 @@ class Rig:
 
 @pytest.fixture
 def rig(tmp_path):
+    if not can_load_extensions():
+        pytest.skip("this Python cannot load SQLite extensions")
     return Rig(tmp_path)
 
 
@@ -182,6 +189,7 @@ def test_a_failing_model_falls_back_to_keywords_and_keeps_the_text(rig):
     assert rig.store.index_pending() == 1 and rig.index.last_error == ""
 
 
+@needs_extensions
 def test_switched_off_or_not_downloaded_means_keywords_only(tmp_path):
     off = Rig(tmp_path, enabled=False)
     off.store.add("The dog is called Biscuit", "person")
@@ -211,6 +219,7 @@ def test_drop_vectors_keeps_the_text(rig):
     assert rig.store.semantic_counts() == (0, 1)
 
 
+@needs_extensions
 def test_indexing_runs_in_the_background_after_a_write(tmp_path):
     rig = Rig(tmp_path)
     rig.store._background_index = True
@@ -455,6 +464,8 @@ def test_every_pinned_file_has_a_hash_for_every_supported_platform():
 
 @pytest.fixture
 def api(tmp_path, pinned):
+    if not can_load_extensions():
+        pytest.skip("this Python cannot load SQLite extensions")
     pins, served = pinned
     setup = EmbeddingSetup(tmp_path / "e", fetch=fetcher(served))
     settings = MemorySettings(tmp_path / "settings.json")
@@ -517,3 +528,19 @@ def test_api_needs_the_token(api):
     assert client.get("/api/memory-semantic").status_code in (401, 403)
     assert client.put("/api/memory-semantic", json={"enabled": True}).status_code in (401, 403)
     assert client.delete("/api/memory-semantic").status_code in (401, 403)
+
+
+def test_api_says_so_and_downloads_nothing_when_extensions_cannot_load(tmp_path, pinned, monkeypatch):
+    pins, served = pinned
+    log = []
+    setup = EmbeddingSetup(tmp_path / "e", fetch=fetcher(served, log))
+    store = MemoryStore(tmp_path / "m.db", MemorySettings(tmp_path / "s.json"), background_index=False)
+    monkeypatch.setattr(server, "can_load_extensions", lambda: False)
+    app = server.create_app(TOKEN, memory=store, embedding_setup=setup, start_scheduler=False)
+    with TestClient(app) as client:
+        status = client.get("/api/memory-semantic", headers=AUTH).json()
+        assert status["supported"] is False and status["enabled"] is False
+        assert status["message"] == UNSUPPORTED
+        refused = client.put("/api/memory-semantic", json={"enabled": True}, headers=AUTH)
+        assert refused.status_code == 400 and "SQLite extensions" in refused.json()["detail"]
+    assert log == [] and store.settings.semantic() is False  # nothing was downloaded or switched on

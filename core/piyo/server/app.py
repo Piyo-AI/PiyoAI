@@ -66,7 +66,13 @@ from piyo.store import (
     UnknownRun,
     complete_tool_calls,
 )
-from piyo.store.embeddings import EmbeddingSetup, LlamaEmbedder, SemanticIndex
+from piyo.store.embeddings import (
+    UNSUPPORTED,
+    EmbeddingSetup,
+    LlamaEmbedder,
+    SemanticIndex,
+    can_load_extensions,
+)
 from piyo.store.memory import SENSITIVE_CATEGORIES, MemoryRefused, MemorySettings, MemoryStore
 from piyo.telemetry import Telemetry, read_shell_crashes
 from piyo.tools import RunContext, ToolRegistry, core_tools
@@ -233,6 +239,7 @@ class MemorySettingsIn(BaseModel):
 
 class SemanticOut(BaseModel):
     enabled: bool
+    supported: bool  # False when this Python cannot load SQLite extensions; `message` says why
     state: str  # off | missing | installing | ready | failed
     percent: int
     message: str
@@ -1387,14 +1394,16 @@ def create_app(
         return memory_settings()
 
     def semantic_out() -> SemanticOut:
-        enabled = memory.settings.semantic()
+        supported = can_load_extensions()
+        enabled = memory.settings.semantic() and supported
         status = embedding_setup.status()
         indexed, total = memory.semantic_counts()
         state = status.state if enabled or status.state == "installing" else "off"
         if enabled and status.state == "ready" and memory.semantic and memory.semantic.last_error:
             status.message = memory.semantic.last_error
         return SemanticOut(
-            enabled=enabled, state=state, percent=status.percent, message=status.message,
+            enabled=enabled, supported=supported, state=state, percent=status.percent,
+            message=status.message if supported else UNSUPPORTED,
             approx_mb=status.approx_mb, model=status.model, downloaded=embedding_setup.ready(),
             indexed=indexed, total=total,
         )
@@ -1406,6 +1415,8 @@ def create_app(
     @app.put("/api/memory-semantic", dependencies=auth)
     async def set_memory_semantic(body: SemanticIn) -> SemanticOut:
         """On: download what is missing (about 330 MB, once) and index memories. Off: stop, keep the files."""
+        if body.enabled and not can_load_extensions():
+            raise HTTPException(status_code=400, detail=UNSUPPORTED)
         memory.settings.set_semantic(body.enabled)
         if body.enabled:
             if embedding_setup.ready():

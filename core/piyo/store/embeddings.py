@@ -46,6 +46,17 @@ IDLE_SECONDS = 180
 START_TIMEOUT = 120
 
 
+UNSUPPORTED = (
+    "This copy of Python cannot load SQLite extensions (some macOS builds are made without it), so finding "
+    "memories by meaning is not available here yet."
+)
+
+
+def can_load_extensions() -> bool:
+    """sqlite-vec is a loadable extension; an interpreter built without that cannot use it at all."""
+    return hasattr(sqlite3.Connection, "enable_load_extension")
+
+
 class EmbeddingError(Exception):
     """Why semantic search is not working; the message is for the user."""
 
