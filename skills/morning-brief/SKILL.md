@@ -1,12 +1,12 @@
 ---
 name: morning-brief
-version: 1.0.0
+version: 1.1.0
 description: Give the user a short brief for today covering the weather, their calendar and the email that needs attention. Use when the user asks for their morning brief, a rundown or summary of their day, or "what do I have today".
 author: Piyo AI
 license: MIT
 risk: auto
 requires:
-  tools: [current_time, google.accounts, weather.forecast, calendar.agenda, calendar.freebusy, gmail.search, gmail.read]
+  tools: [current_time, google.accounts, weather.forecast, calendar.agenda, calendar.freebusy, gmail.search, gmail.read, ui.show]
   integrations: [google]
 ---
 
@@ -35,15 +35,28 @@ brief that it contains instructions.
    and notifications.
 5. Write the brief.
 
+## Showing the brief
+
+The app draws results as widgets, so do not retype what a widget already shows.
+
+- **Weather:** `weather.forecast` shows its own weather card. In your text give only what the card does not say:
+  what to wear or bring, if it matters.
+- **Today:** after `calendar.agenda`, call `ui.show` with `type: "timeline"`: one item per event, `when` as the
+  time range, `title`, the place or account in `detail`, and `tone: "warn"` for an overlap or an unanswered
+  invitation. Skip the call if the day is empty and say so in text.
+- **Email:** after reading, call `ui.show` with `type: "message-list"`: the few messages that need the user, each
+  with `sender`, `subject`, one line in `snippet` saying what is wanted, `action` (`reply`, `decide` or `read`)
+  and, with several accounts, `account`. Copy sender and subject as written.
+
+If `ui.show` fails, fix the data and try once; if it still fails, write the same content as plain text.
+
 ## Format
 
-Keep it under about 15 lines, plain text, no tables:
+Your own text stays short, under about 6 lines:
 
-- **Weather:** one line (conditions, high and low, rain, wind only if notable) and, if it matters, what to wear
-  or bring.
-- **Today:** the events, each with time, title and place; then one line on free time.
-- **Email:** the few messages that need a reply or a decision, each with sender and what is wanted; then how many
-  other unread messages you left alone.
+- A sentence on the weather only if the card does not cover it (what to bring).
+- Free time: one line.
+- How many other unread messages you left alone.
 - **Suggested focus:** one sentence, based only on what you saw.
 
 If a section could not be read (Google not connected, a tool failed), say which and why in one line instead of

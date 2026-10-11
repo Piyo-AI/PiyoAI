@@ -51,6 +51,9 @@ class Message(BaseModel):
     # Pictures a tool returned, for the model to see during this run. Never saved with the conversation
     # (exclude=True keeps them out of the store), so history reloaded later has the text only.
     images: list[Image] = Field(default_factory=list, exclude=True)  # tool only
+    # A checked response view (`piyo.views`) the app shows for this result. Saved with the conversation so a
+    # reloaded chat looks the same; never sent to the model, which only ever gets `content`. tool only.
+    view: dict | None = None
 
 
 @dataclass

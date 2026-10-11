@@ -79,6 +79,7 @@ from piyo.tools.memory import memory_tools, profile_prompt
 from piyo.tools.schedule import schedule_tools
 from piyo.tools.scripts import script_tools
 from piyo.tools.search import search_tools
+from piyo.tools.ui import ui_tools
 from piyo.tools.weather import weather_tools
 from piyo.tools.web import web_tools
 
@@ -718,6 +719,7 @@ def create_app(
         + google_account_tools(google)
         + calendar_tools(google)
         + weather_tools()
+        + ui_tools()
     )
     scheduler_store = scheduler_store or SchedulerStore()
     app = FastAPI(title="Piyo Core", version=__version__)
@@ -1969,6 +1971,7 @@ def create_app(
                                 "name": event.name,
                                 "output": event.output[:UI_OUTPUT_CHARS],
                                 "is_error": event.is_error,
+                                "view": event.view,  # not cut with the output: the core already checked it
                             }
                         )
                     elif isinstance(event, Finished):

@@ -15,6 +15,7 @@ STEPS = [
     ("ruff", [UV, "run", "ruff", "check", "piyo", "tests"], ROOT / "core"),
     ("pytest", [UV, "run", "pytest", "-q"], ROOT / "core"),
     ("typecheck", [NPM, "run", "typecheck"], ROOT / "apps" / "desktop"),
+    ("ui tests", [NPM, "test"], ROOT / "apps" / "desktop"),
     ("build", [NPM, "run", "build"], ROOT / "apps" / "desktop"),
 ]
 

@@ -1,12 +1,12 @@
 ---
 name: calendar
-version: 1.0.0
+version: 1.1.0
 description: Look at the user's Google Calendar, find a free slot, and add, move or cancel events. Use when the user asks what is on their calendar, when they are free, or wants to schedule, reschedule or delete an appointment or meeting.
 author: Piyo AI
 license: MIT
 risk: confirm
 requires:
-  tools: [google.accounts, calendar.agenda, calendar.freebusy, calendar.create, calendar.update, calendar.delete, current_time]
+  tools: [google.accounts, calendar.agenda, calendar.freebusy, calendar.create, calendar.update, calendar.delete, current_time, ui.show]
   integrations: [google]
 ---
 
@@ -36,8 +36,11 @@ many, call `google.accounts`. With one, leave `account` out. With several, every
 
 ## What is on my calendar
 
-Call `calendar.agenda` (no arguments is today; use `start`/`days` for more). Summarise in time order, flag
-overlaps and events with a pending reply, and say when the day is empty.
+Call `calendar.agenda` (no arguments is today; use `start`/`days` for more). Show it with `ui.show`
+(`type: "timeline"`): one item per event in time order, `when` as the time range (add the date when the range
+covers several days), `title`, the place or account in `detail`, and `tone: "warn"` for overlaps and events with
+a pending reply. Then add only what the timeline does not say, in a sentence or two. Say when the day is empty
+instead of showing an empty timeline. If `ui.show` fails, fix the data and try once, then use plain text.
 
 ## When am I free
 

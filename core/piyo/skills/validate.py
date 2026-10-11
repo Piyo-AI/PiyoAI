@@ -58,6 +58,7 @@ KNOWN_TOOLS = frozenset(
         "schedule.create",
         "schedule.list",
         "skill.run_script",
+        "ui.show",
         "weather.forecast",
         "web.fetch",
         "web.search",

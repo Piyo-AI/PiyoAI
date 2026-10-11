@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, ChatEvent, ChatMessage, ChatSocket, StoredMessage } from "./api";
+import { api, ChatEvent, ChatMessage, ChatSocket, StoredMessage, ViewEnvelope } from "./api";
 import { usePaged } from "./usePaged";
 
 const CHAT_PAGE = 30;
@@ -12,6 +12,8 @@ export interface ToolActivity {
   /** undefined while the tool is still running. */
   output?: string;
   isError?: boolean;
+  /** A widget to show for the result; the output stays as its text fallback. */
+  view?: ViewEnvelope | null;
 }
 
 export interface UiMessage extends ChatMessage {
@@ -58,6 +60,7 @@ export function toUiMessages(stored: StoredMessage[]): UiMessage[] {
       if (tool) {
         tool.output = m.content;
         tool.isError = m.is_error;
+        tool.view = m.view ?? null;
       }
     }
   }
@@ -131,7 +134,7 @@ export function useChat() {
       case "tool_end":
         patchLast((m) => ({
           ...m,
-          tools: (m.tools ?? []).map((t) => (t.id === e.id ? { ...t, output: e.output, isError: e.is_error } : t)),
+          tools: (m.tools ?? []).map((t) => (t.id === e.id ? { ...t, output: e.output, isError: e.is_error, view: e.view ?? null } : t)),
         }));
         break;
       case "approval_request":

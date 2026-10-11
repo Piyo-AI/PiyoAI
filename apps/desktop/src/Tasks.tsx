@@ -145,6 +145,10 @@ function Step({ step }: { step: RunDetail["steps"][number] }) {
   } else if (step.kind === "skill") {
     title = `Loaded skill ${d.name}`;
     body = "";
+  } else if (step.kind === "view") {
+    title = d.rejected ? `Could not show a view for ${d.name}` : `Showed a ${d.type} view for ${d.name}`;
+    body = d.rejected || "";
+    state = d.rejected ? "failed" : "ok";
   } else if (step.kind === "approval") {
     title = `${d.approved ? "You allowed" : "You declined"}: ${d.summary || d.tool}`;
     body = JSON.stringify(d.arguments, null, 2);

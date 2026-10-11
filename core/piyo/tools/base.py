@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from piyo.models.capabilities import ModelCaps
 from piyo.models.turn import Image, ToolSpec
+from piyo.views import ViewError, validate_view
 
 if TYPE_CHECKING:
     from piyo.safety.exfil import OutboundGuard
@@ -50,6 +51,9 @@ class RunContext:
 
     # Pictures tools attached during the current call; the loop moves them onto the tool result message.
     pending_images: list[Image] = field(default_factory=list)
+    # The same for a response view (see `attach_view`), or the reason one was refused.
+    pending_view: dict | None = None
+    view_problem: str | None = None
 
     def attach_image(self, data: str, media_type: str = "image/jpeg") -> None:
         self.pending_images.append(Image(media_type=media_type, data=data))
@@ -57,6 +61,22 @@ class RunContext:
     def take_images(self) -> list[Image]:
         images, self.pending_images = self.pending_images, []
         return images
+
+    def attach_view(self, kind: str, data: dict, fallback: str = "", version: int = 1) -> None:
+        """Show this call's result as a widget too. An invalid view is dropped; the text stands."""
+        try:
+            raw = {"type": kind, "v": version, "data": data, "fallback": fallback}
+            self.pending_view = validate_view(raw)
+            self.view_problem = None
+        except ViewError as e:
+            self.pending_view = None
+            self.view_problem = str(e)
+
+    def take_view(self) -> tuple[dict | None, str | None]:
+        """(the view attached during the current call, why one was refused); both reset."""
+        view, problem = self.pending_view, self.view_problem
+        self.pending_view = self.view_problem = None
+        return view, problem
 
     def granted_tools(self) -> set[str]:
         """Tools unlocked by the skills loaded so far (union of their `requires.tools`)."""

@@ -55,6 +55,7 @@ class ToolFinished:
     name: str
     output: str
     is_error: bool = False
+    view: dict | None = None  # a checked response view to show instead of the plain output (piyo.views)
 
 
 @dataclass
@@ -167,13 +168,21 @@ class Agent:
                 started = time.monotonic()
                 before = set(ctx.active_skills)
                 ctx.take_images()  # nothing left over from an earlier call
+                ctx.take_view()
                 output, is_error = await self._execute(call, ctx, done.text)
                 if not is_error and produces_private_data(call.name):
                     ctx.private_data = True  # outbound tools ask from now on (safety/exfil.py)
                 if not is_error and produces_untrusted(call.name):
                     ctx.untrusted_text = True  # memory.remember asks from now on (safety/taint.py)
                 images =[] if is_error else ctx.take_images()
+                view, view_problem = ctx.take_view()
+                if is_error:
+                    view = None  # a failed call shows its error, not a widget
                 if self.log:
+                    if view:
+                        self.log.step("view", name=call.name, type=view["type"])  # the kind, not the data
+                    elif view_problem and not is_error:
+                        self.log.step("view", name=call.name, rejected=view_problem)
                     self.log.step(
                         "tool",
                         _ms(started),
@@ -190,10 +199,15 @@ class Agent:
                             self.log.step("skill", name=name)
                 messages.append(
                     Message(
-                        role="tool", content=output, tool_call_id=call.id, is_error=is_error, images=images
+                        role="tool",
+                        content=output,
+                        tool_call_id=call.id,
+                        is_error=is_error,
+                        images=images,
+                        view=view,
                     )
                 )
-                yield ToolFinished(call.id, call.name, output, is_error)
+                yield ToolFinished(call.id, call.name, output, is_error, view)
         yield Finished("step_limit", sorted(ctx.active_skills))
 
     def _log_turn(self, done: TurnDone, sent, specs, system, started: float) -> None:

@@ -17,7 +17,8 @@ from tests.test_browser import FakeSession
 
 SKILLS = Path(__file__).parents[2] / "skills"
 NAMES = ["price-compare", "parcel-tracking"]
-ALLOWED = {"browser.open", "browser.read", "browser.click", "browser.type", "browser.wait"}
+# ui.show only draws what the model passes in (a widget), so it adds no reach.
+ALLOWED = {"browser.open", "browser.read", "browser.click", "browser.type", "browser.wait", "ui.show"}
 PROVIDER = Provider(id="t", name="T", api_style=ApiStyle.OPENAI, base_url="http://x", requires_key=False)
 
 
@@ -121,7 +122,7 @@ def test_nothing_in_either_skill_can_lower_a_tools_risk(registry):
     assert by_name["browser.click"].risk is Risk.CONFIRM
     for name in NAMES:
         for tool in registry.get(name).manifest.requires.tools:
-            assert tool in by_name
+            assert tool in by_name or tool == "ui.show"
 
 
 async def test_a_tracking_number_that_passes_the_card_check_is_typed_into_a_tracking_field():

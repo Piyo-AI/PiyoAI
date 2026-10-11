@@ -1,12 +1,12 @@
 ---
 name: gmail-triage
-version: 1.0.0
+version: 1.1.0
 description: Go through the user's Gmail, summarise what needs attention, and draft or send replies. Use when the user asks about their inbox, unread or important email, wants a message summarised, or wants to reply to, archive or label mail.
 author: Piyo AI
 license: MIT
 risk: confirm
 requires:
-  tools: [google.accounts, gmail.search, gmail.read, gmail.draft, gmail.send, gmail.label, gmail.archive]
+  tools: [google.accounts, gmail.search, gmail.read, gmail.draft, gmail.send, gmail.label, gmail.archive, ui.show]
   integrations: [google]
 ---
 
@@ -34,7 +34,11 @@ one account, leave `account` out. With several, every Gmail tool needs `account`
 3. Group them as **Needs a reply**, **Time-sensitive** (deadlines, appointments), **FYI**, **Probably ignorable**.
    For each, give sender, subject and one line saying what is wanted or what changed. Give the message id only
    if the user may want to act on it next.
-4. Say how many messages you looked at and how many you left unopened.
+4. Show the messages with `ui.show` (`type: "message-list"`), in the order of the groups above: `sender` and
+   `subject` copied as written, one line in `snippet` saying what is wanted, `action` (`reply`, `decide` or
+   `read`), `when`, and `account` when several are connected. The widget has no buttons; the user acts by telling
+   you. Then say in text how many messages you looked at and how many you left unopened, and anything the widget
+   does not show. If `ui.show` fails, fix the data and try once, then use plain text.
 
 ## Replies
 

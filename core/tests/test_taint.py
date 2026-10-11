@@ -123,7 +123,7 @@ def test_classification_covers_both_wire_names():
 OWN_TEXT = {
     "current_time", "load_skill", "files.folders", "files.write", "files.create_folder", "files.move",
     "files.delete", "google.accounts", "memory.forget", "memory.recall", "memory.remember",
-    "schedule.cancel", "schedule.create", "schedule.list", "weather.forecast",
+    "schedule.cancel", "schedule.create", "schedule.list", "ui.show", "weather.forecast",
 }
 
 

@@ -18,7 +18,9 @@ import { useRollback, useUpdate } from "./useUpdate";
 import { describeUpdate, useCatalogCheck } from "./useCatalogCheck";
 import { useSetupNeeded } from "./useSetupNeeded";
 import { Tasks } from "./Tasks";
+import { ChatMarkdown } from "./ChatMarkdown";
 import { ApprovalCard, ToolChip } from "./Tools";
+import { ViewRenderer } from "./Views";
 import { useChat } from "./useChat";
 import { useStickToBottom } from "./useStickToBottom";
 
@@ -344,7 +346,18 @@ export default function App() {
           <div key={i} className={`msg ${m.role}${m.error ? " failed" : ""}`}>
             <div className="bubble">
               {m.tools?.map((t) => <ToolChip key={t.id} tool={t} />)}
-              {m.content || (busy && i === messages.length - 1 && !m.tools?.length ? <span className="dots" /> : "")}
+              {m.tools?.map((t) => t.view && !t.isError && <ViewRenderer key={t.id} view={t.view} text={t.output ?? ""} />)}
+              {m.content ? (
+                m.role === "assistant" && !m.error ? (
+                  <ChatMarkdown text={m.content} />
+                ) : (
+                  m.content
+                )
+              ) : busy && i === messages.length - 1 && !m.tools?.length ? (
+                <span className="dots" />
+              ) : (
+                ""
+              )}
               {m.note && <div className="note">{m.note}</div>}
             </div>
           </div>

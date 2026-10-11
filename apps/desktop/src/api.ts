@@ -127,7 +127,7 @@ export interface RunInfo {
 }
 
 export interface RunStep {
-  kind: "model" | "tool" | "approval" | "skill";
+  kind: "model" | "tool" | "approval" | "skill" | "view";
   at: string;
   duration_ms: number | null;
   data: Record<string, unknown>;
@@ -179,7 +179,7 @@ export type ChatEvent =
   | { type: "conversation"; id: string }
   | { type: "delta"; text: string }
   | { type: "tool_start"; id: string; name: string; arguments: Record<string, unknown> }
-  | { type: "tool_end"; id: string; name: string; output: string; is_error: boolean }
+  | { type: "tool_end"; id: string; name: string; output: string; is_error: boolean; view?: ViewEnvelope | null }
   | { type: "approval_request"; id: string; tool: string; arguments: Record<string, unknown>; summary?: string; why?: string }
   | { type: "done"; reason: "done" | "step_limit" | "token_limit" | "timeout" | "truncated" | "cancelled" }
   | { type: "error"; message: string };
@@ -191,12 +191,21 @@ export interface ConversationInfo {
   updated_at: string;
 }
 
+/** A response view the core already checked (core/piyo/views); the app renders it in Views.tsx. */
+export interface ViewEnvelope {
+  type: string;
+  v: number;
+  data: unknown;
+  fallback?: string;
+}
+
 export interface StoredMessage {
   role: "user" | "assistant" | "tool";
   content: string;
   tool_calls: { id: string; name: string; arguments: Record<string, unknown> }[];
   tool_call_id: string | null;
   is_error: boolean;
+  view?: ViewEnvelope | null;
 }
 
 export interface ConversationDetail extends ConversationInfo {

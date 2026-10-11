@@ -51,6 +51,15 @@ WEATHER_CODES = {
     99: "severe thunderstorm with hail",
 }
 
+# WMO code -> the picture the app draws (the closed list in piyo.views.schema.WeatherIcon).
+ICONS = {
+    0: "clear", 1: "mostly-clear", 2: "partly-cloudy", 3: "cloudy", 45: "fog", 48: "fog",
+    51: "drizzle", 53: "drizzle", 55: "drizzle", 56: "drizzle", 57: "drizzle",
+    61: "rain", 63: "rain", 65: "heavy-rain", 66: "rain", 67: "heavy-rain",
+    71: "snow", 73: "snow", 75: "snow", 77: "snow", 85: "snow", 86: "snow",
+    80: "rain", 81: "rain", 82: "heavy-rain", 95: "thunder", 96: "thunder", 99: "thunder",
+}  # fmt: skip
+
 UNITS = {
     "metric": {"temperature_unit": "celsius", "wind_speed_unit": "kmh", "precipitation_unit": "mm"},
     "imperial": {"temperature_unit": "fahrenheit", "wind_speed_unit": "mph", "precipitation_unit": "inch"},
@@ -81,6 +90,68 @@ def _num(value: object, digits: int = 0) -> str:
 
 def _sky(code: object) -> str:
     return WEATHER_CODES.get(code, "unknown conditions") if isinstance(code, int) else "unknown conditions"
+
+
+def _icon(code: object) -> str:
+    return ICONS.get(code, "unknown") if isinstance(code, int) else "unknown"
+
+
+def _val(value: object, digits: int | None = None) -> float | None:
+    """A number for the widget, or None; the same readings as `_num`, kept as numbers."""
+    if not isinstance(value, int | float) or isinstance(value, bool) or value != value:
+        return None
+    return round(value, digits) if digits is not None else float(value)
+
+
+def _clock(value: object) -> str | None:
+    return value[-5:] if isinstance(value, str) and re.fullmatch(r".*T\d{2}:\d{2}", value) else None
+
+
+def weather_view(name: str, zone: str, units: tuple[str, str, str], data: dict) -> dict:
+    """The data of the `weather` view, from the same service answer the text is written from."""
+    deg, wind, rain = units
+    cur = data.get("current") or {}
+    daily = data.get("daily") or {}
+
+    def at(key: str, i: int) -> object:
+        values = daily.get(key) or []
+        return values[i] if i < len(values) else None
+
+    days = []
+    for i, day in enumerate((daily.get("time") or [])[:MAX_DAYS]):
+        chance = at("precipitation_probability_max", i)
+        ok = isinstance(chance, int | float) and 0 <= chance <= 100
+        chance_pct = round(chance) if ok else None
+        days.append(
+            {
+                "date": _clean(day, 12),
+                "sky": _sky(at("weather_code", i)),
+                "icon": _icon(at("weather_code", i)),
+                "high": _val(at("temperature_2m_max", i)),
+                "low": _val(at("temperature_2m_min", i)),
+                "rain": _val(at("precipitation_sum", i), 1),
+                "rain_chance": chance_pct,
+                "wind": _val(at("wind_speed_10m_max", i)),
+                "sunrise": _clock(at("sunrise", i)),
+                "sunset": _clock(at("sunset", i)),
+            }
+        )
+    now = None
+    if cur:
+        now = {
+            "temp": _val(cur.get("temperature_2m")),
+            "feels_like": _val(cur.get("apparent_temperature")),
+            "wind": _val(cur.get("wind_speed_10m")),
+            "sky": _sky(cur.get("weather_code")),
+            "icon": _icon(cur.get("weather_code")),
+        }
+    return {
+        "place": name[:80],
+        "timezone": zone[:80],
+        "units": {"temp": deg, "wind": wind, "rain": rain},
+        "now": now,
+        "days": days,
+    }
 
 
 def _label(place: dict) -> str:
@@ -188,6 +259,8 @@ class WeatherTools:
             lines.append("The service returned no forecast data.")
         if others:
             lines.append(f"Matched the first of several places. Others: {'; '.join(others)}.")
+        if cur or daily.get("time"):
+            ctx.attach_view("weather", weather_view(name, zone if zone != "unknown" else "", labels, data))
         return "\n".join(lines)
 
 

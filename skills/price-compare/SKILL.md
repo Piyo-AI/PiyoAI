@@ -1,11 +1,11 @@
 ---
 name: price-compare
-version: 1.0.0
+version: 1.1.0
 description: Compare the price of a product across a few online shops and report the cheapest option with links. Use when the user asks where to buy something cheapest, to compare prices, or to check what something costs in several shops.
 author: Piyo AI
 license: MIT
 requires:
-  tools: [browser.open, browser.read, browser.click, browser.type, browser.wait]
+  tools: [browser.open, browser.read, browser.click, browser.type, browser.wait, ui.show]
 ---
 
 # Price compare
@@ -50,8 +50,10 @@ request, so do not wander.
 
 ## The answer
 
-Give a short table, cheapest first: shop, price (with currency), shipping or tax note, stock, link. Then one or
-two sentences: which is cheapest *including* shipping when you know it, and any caveat (a different variant, a
+Show a table with `ui.show` (`type: "table"`), cheapest first, columns shop, price (with currency), shipping or
+tax note, stock and link (a link cell with the page address you saw). Leave a cell empty rather than guessing.
+Then one or two sentences of your own (if `ui.show` fails, fix the data and try once, then use a plain-text
+table): which is cheapest *including* shipping when you know it, and any caveat (a different variant, a
 marketplace seller, a price shown "from", a sponsored result you skipped). Say plainly when a shop could not be
 checked and why. Never fill a gap with a guess or a price you did not see on a page. State that prices were read
 just now and can change.

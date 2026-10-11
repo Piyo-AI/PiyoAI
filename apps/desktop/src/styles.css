@@ -177,6 +177,101 @@ textarea:focus {
 .msg.user .bubble {
   background: var(--user);
 }
+
+/* Assistant replies: Markdown (ChatMarkdown.tsx). The bubble's pre-wrap is for plain text only. */
+.md {
+  white-space: normal;
+  line-height: 1.5;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md .md-table,
+.md pre {
+  margin: 0 0 0.6em;
+}
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 0.9em 0 0.4em;
+  line-height: 1.3;
+}
+.md h3 {
+  font-size: 1.15em;
+}
+.md h4 {
+  font-size: 1.05em;
+}
+.md h5,
+.md h6 {
+  font-size: 1em;
+}
+.md ul,
+.md ol {
+  padding-left: 1.4em;
+}
+.md li > ul,
+.md li > ol {
+  margin: 0.2em 0 0;
+}
+.md blockquote {
+  padding-left: 0.8em;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0.8em 0;
+}
+.md a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: var(--border);
+}
+.md pre.md-code {
+  white-space: pre;
+  overflow-x: auto;
+  padding: 0.6em 0.8em;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.md pre.md-code code {
+  padding: 0;
+  background: none;
+}
+.md .md-table {
+  overflow-x: auto;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.md th,
+.md td {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.md th {
+  background: var(--bg);
+}
 .msg.failed .bubble {
   color: var(--error);
   border: 1px solid var(--error);
@@ -1313,4 +1408,281 @@ pre.telemetry-events {
   .toast {
     animation: none;
   }
+}
+
+/* Response views (Views.tsx): display-only cards inside the assistant bubble. Never styled like .approval. */
+.view {
+  white-space: normal;
+  margin: 8px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.view-text pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: 0.92em;
+  color: var(--muted);
+}
+.weather {
+  min-width: 280px;
+  --w-sun: #f5a524;
+  --w-rain: #3b8ee0;
+  --w-cloud: #98a2b3;
+}
+.w-place {
+  font-size: 0.85em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.w-now {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.w-temp {
+  font-size: 2em;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.w-temp span {
+  font-size: 0.5em;
+  font-weight: 500;
+  margin-left: 2px;
+  color: var(--muted);
+}
+.w-sky {
+  text-transform: capitalize;
+}
+.w-meta {
+  margin-left: auto;
+  text-align: right;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+.w-days {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.w-days li {
+  display: grid;
+  grid-template-columns: 3.2em 28px 2.6em 2em 1fr 2em;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  font-size: 0.92em;
+}
+.w-chance {
+  color: var(--w-rain);
+  font-size: 0.85em;
+}
+.w-lo {
+  color: var(--muted);
+  text-align: right;
+}
+.w-hi {
+  text-align: right;
+}
+.w-bar {
+  position: relative;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+}
+.w-bar i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--w-rain), var(--w-sun));
+}
+.w-stats {
+  margin-top: 10px;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+.wi {
+  flex: none;
+}
+.wi-cloud {
+  fill: var(--w-cloud);
+}
+.wi-sun circle {
+  fill: var(--w-sun);
+}
+.wi-sun line,
+.wi-line line {
+  stroke: var(--w-sun);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.wi-line line {
+  stroke: var(--w-cloud);
+}
+.wi-rain line {
+  stroke: var(--w-rain);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.wi-snow circle {
+  fill: var(--text);
+}
+.wi-bolt {
+  fill: var(--w-sun);
+}
+
+/* Generic views (GenericViews.tsx) */
+.v-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.v-host {
+  color: var(--muted);
+  font-size: 0.8em;
+}
+.view a {
+  color: var(--accent);
+}
+.v-scroll {
+  overflow-x: auto;
+}
+.v-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.93em;
+}
+.v-table th,
+.v-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.v-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85em;
+}
+.v-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.v-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.v-kv dl {
+  margin: 0;
+}
+.v-kv dl > div {
+  display: grid;
+  grid-template-columns: minmax(6em, 30%) 1fr;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.v-kv dl > div:last-child {
+  border-bottom: 0;
+}
+.v-kv dt {
+  color: var(--muted);
+}
+.v-kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.v-timeline ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.v-timeline li {
+  display: grid;
+  grid-template-columns: 7.5em 12px 1fr;
+  gap: 8px;
+  padding: 5px 0;
+}
+.v-when {
+  color: var(--muted);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+.v-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.tone-good .v-dot {
+  background: var(--ok);
+}
+.tone-warn .v-dot {
+  background: var(--accent);
+}
+.tone-bad .v-dot {
+  background: var(--error);
+}
+.v-item-title {
+  font-weight: 500;
+}
+.v-detail {
+  color: var(--muted);
+  font-size: 0.88em;
+}
+.v-list ul,
+.v-list ol {
+  margin: 0;
+  padding-left: 1.4em;
+}
+.v-list ul.checklist,
+.v-list ol.checklist {
+  list-style: none;
+  padding-left: 0;
+}
+.v-list li {
+  padding: 2px 0;
+}
+.v-list li.done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.v-box {
+  margin-right: 6px;
+}
+.v-messages ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.v-messages li {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+.v-messages li:last-child {
+  border-bottom: 0;
+}
+.v-msg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.v-msg-head .v-when {
+  margin-left: auto;
+}
+.v-chip {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: 0.78em;
+  background: var(--border);
+  color: var(--muted);
+}
+.v-chip.action-reply,
+.v-chip.action-decide {
+  background: var(--user);
+  color: var(--text);
 }
