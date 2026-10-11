@@ -6,6 +6,8 @@ everything. Forgetting is a deletion, so it asks. Recalled text is fenced: it is
 
 from __future__ import annotations
 
+import asyncio
+
 from piyo.safety.taint import MemoryGuard
 from piyo.safety.untrusted import wrap_untrusted
 from piyo.store.memory import MemoryRefused, MemoryStore
@@ -33,7 +35,7 @@ def memory_tools(store: MemoryStore) -> list[Tool]:
         query = str(args.get("query") or "")
         category = args.get("category")
         limit = min(max(int(args.get("limit") or 8), 1), 25)
-        found = store.search(query, str(category) if category else None, limit)
+        found = await asyncio.to_thread(store.search, query, str(category) if category else None, limit)
         if not found:
             return "Nothing remembered matches."
         body = "\n".join(f"[{m.id}] ({m.category}) {m.text}" for m in found)

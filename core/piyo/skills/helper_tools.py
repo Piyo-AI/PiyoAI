@@ -33,7 +33,7 @@ from piyo.config import tools_dir
 PINS = Path(__file__).with_name("helper_tools.json")
 ENV = {"uv": "PIYO_UV", "deno": "PIYO_DENO"}
 NAMES = {"uv": "uv", "deno": "Deno"}
-MAX_DOWNLOAD_BYTES = 300 * 2**20
+MAX_DOWNLOAD_BYTES = 400 * 2**20  # the largest pinned file is the 310 MB embedding model
 
 # (url, where to write, progress(received, total or None)): the real one is `http_download`.
 Fetch = Callable[[str, Path, Callable[[int, int | None], None]], Awaitable[None]]
@@ -95,7 +95,7 @@ async def http_download(url: str, target: Path, progress: Callable[[int, int | N
                 progress(received, total)
 
 
-def _sha256(path: Path) -> str:
+def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as f:
         while chunk := f.read(1 << 20):
@@ -234,7 +234,7 @@ class HelperTools:
 
             await self._fetch(url, archive, progress)
             say("installing", 99, f"Checking {name}…")
-            if await asyncio.to_thread(_sha256, archive) != entry["sha256"]:
+            if await asyncio.to_thread(sha256_file, archive) != entry["sha256"]:
                 raise HelperError(
                     f"The {name} download does not match its fixed fingerprint, so it was deleted, not used."
                 )

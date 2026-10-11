@@ -66,7 +66,8 @@ from piyo.store import (
     UnknownRun,
     complete_tool_calls,
 )
-from piyo.store.memory import SENSITIVE_CATEGORIES, MemoryRefused, MemoryStore
+from piyo.store.embeddings import EmbeddingSetup, LlamaEmbedder, SemanticIndex
+from piyo.store.memory import SENSITIVE_CATEGORIES, MemoryRefused, MemorySettings, MemoryStore
 from piyo.telemetry import Telemetry, read_shell_crashes
 from piyo.tools import RunContext, ToolRegistry, core_tools
 from piyo.tools import search as search_mod
@@ -228,6 +229,22 @@ class MemorySettingsOut(BaseModel):
 
 class MemorySettingsIn(BaseModel):
     sensitive: bool
+
+
+class SemanticOut(BaseModel):
+    enabled: bool
+    state: str  # off | missing | installing | ready | failed
+    percent: int
+    message: str
+    approx_mb: int
+    model: str
+    downloaded: bool  # the files are on disk, whether or not it is switched on
+    indexed: int  # memories searchable by meaning
+    total: int
+
+
+class SemanticIn(BaseModel):
+    enabled: bool
 
 
 class JobOut(BaseModel):
@@ -674,6 +691,7 @@ def create_app(
     catalog: CatalogClient | None = None,
     ollama: OllamaSetup | None = None,
     telemetry: Telemetry | None = None,
+    embedding_setup: EmbeddingSetup | None = None,
 ) -> FastAPI:
     google = google or GoogleAuth()
     browser_rules = BrowserRules()
@@ -706,7 +724,15 @@ def create_app(
     reported_context: dict[tuple[str, str], int] = {}  # context windows, same source
     reported_vision: dict[tuple[str, str], bool] = {}
     folders = ApprovedFolders(workspace=workspace_dir())
-    memory = memory or MemoryStore()
+    embedding_setup = embedding_setup or EmbeddingSetup()
+    embedder = LlamaEmbedder(embedding_setup)
+    if memory is None:
+        memory_settings_store = MemorySettings()
+        memory = MemoryStore(
+            settings=memory_settings_store,
+            semantic=SemanticIndex(embedding_setup, embedder, memory_settings_store.semantic),
+        )
+    embedding_setup.on_ready = memory.reindex_later
     tools = ToolRegistry(
         core_tools()
         + memory_tools(memory)
@@ -727,6 +753,8 @@ def create_app(
     app.router.add_event_handler("shutdown", browser.close)
     app.router.add_event_handler("shutdown", installer.close)
     app.router.add_event_handler("shutdown", ollama.close)
+    app.router.add_event_handler("shutdown", embedder.close)
+    app.router.add_event_handler("startup", memory.reindex_later)  # a no-op unless semantic search is on
     app.state.tools = tools
 
     def report_start() -> None:
@@ -1357,6 +1385,45 @@ def create_app(
     def set_memory_settings(body: MemorySettingsIn) -> MemorySettingsOut:
         memory.settings.set_sensitive(body.sensitive)
         return memory_settings()
+
+    def semantic_out() -> SemanticOut:
+        enabled = memory.settings.semantic()
+        status = embedding_setup.status()
+        indexed, total = memory.semantic_counts()
+        state = status.state if enabled or status.state == "installing" else "off"
+        if enabled and status.state == "ready" and memory.semantic and memory.semantic.last_error:
+            status.message = memory.semantic.last_error
+        return SemanticOut(
+            enabled=enabled, state=state, percent=status.percent, message=status.message,
+            approx_mb=status.approx_mb, model=status.model, downloaded=embedding_setup.ready(),
+            indexed=indexed, total=total,
+        )
+
+    @app.get("/api/memory-semantic", dependencies=auth)
+    async def get_memory_semantic() -> SemanticOut:
+        return await asyncio.to_thread(semantic_out)
+
+    @app.put("/api/memory-semantic", dependencies=auth)
+    async def set_memory_semantic(body: SemanticIn) -> SemanticOut:
+        """On: download what is missing (about 330 MB, once) and index memories. Off: stop, keep the files."""
+        memory.settings.set_semantic(body.enabled)
+        if body.enabled:
+            if embedding_setup.ready():
+                memory.reindex_later()
+            else:
+                embedding_setup.start()
+        else:
+            await asyncio.to_thread(embedder.close)
+        return await asyncio.to_thread(semantic_out)
+
+    @app.delete("/api/memory-semantic", dependencies=auth)
+    async def remove_memory_semantic() -> SemanticOut:
+        """Turn it off and delete the downloaded files and every stored vector (the memory text stays)."""
+        memory.settings.set_semantic(False)
+        await asyncio.to_thread(embedder.close)
+        await asyncio.to_thread(memory.drop_vectors)
+        await asyncio.to_thread(embedding_setup.remove)
+        return await asyncio.to_thread(semantic_out)
 
     @app.get("/api/catalog", dependencies=auth)
     async def get_catalog() -> CatalogOut:

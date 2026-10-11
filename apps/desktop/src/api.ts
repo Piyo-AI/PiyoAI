@@ -394,6 +394,21 @@ export interface MemorySettings {
   sensitive_categories: string[];
 }
 
+/** Finding memories by meaning (EmbeddingGemma 2, downloaded the first time it is turned on). */
+export interface SemanticStatus {
+  enabled: boolean;
+  state: "off" | "missing" | "installing" | "ready" | "failed";
+  percent: number;
+  message: string;
+  approx_mb: number;
+  model: string;
+  /** The files are on disk, whether or not it is switched on. */
+  downloaded: boolean;
+  /** Memories that can be found by meaning, out of `total`. */
+  indexed: number;
+  total: number;
+}
+
 /** What a skill zip contains and asks for, before anything is installed. */
 export interface InstallPreview {
   token: string;
@@ -679,6 +694,9 @@ export const api = {
   exportMemory: () => request<MemoryItem[]>("GET", "/api/memory-export"),
   memorySettings: () => request<MemorySettings>("GET", "/api/memory-settings"),
   setMemorySensitive: (sensitive: boolean) => request<MemorySettings>("PUT", "/api/memory-settings", { sensitive }),
+  memorySemantic: () => request<SemanticStatus>("GET", "/api/memory-semantic"),
+  setMemorySemantic: (enabled: boolean) => request<SemanticStatus>("PUT", "/api/memory-semantic", { enabled }),
+  removeMemorySemantic: () => request<SemanticStatus>("DELETE", "/api/memory-semantic"),
   catalog: () => request<Catalog>("GET", "/api/catalog"),
   checkCatalog: () => request<CatalogCheck>("POST", "/api/catalog/check"),
   acknowledgeWithdrawn: (name: string) => request<void>("POST", `/api/catalog/withdrawn/${name}/acknowledge`),

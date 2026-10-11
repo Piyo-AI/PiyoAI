@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 
 import { api, MemoryItem, MemorySettings } from "./api";
+import { SemanticSearch } from "./SemanticSearch";
 
 const LABELS: Record<string, string> = {
   preference: "Preference",
@@ -112,6 +113,8 @@ export function MemoryPage() {
         Allow health, finance and identity notes
       </label>
       <p className="hint">Off by default. When off, Piyo will not store these even if you ask in chat.</p>
+
+      <SemanticSearch onChange={() => load()} />
 
       <input
         className="memory-search"

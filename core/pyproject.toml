@@ -34,6 +34,7 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "ruff>=0.6,!=0.16.10",
+    "sqlite-vec>=0.1.9",
 ]
 
 [build-system]

@@ -74,6 +74,16 @@ these programs run skill code. Nothing is looked up at run time, so to upgrade:
 3. `python scripts/build_core.py --smoke` downloads both through the packaged core (with any `uv`/Deno on your PATH hidden), checks
    the hash for your OS and that they report the pinned version; CI does the same on the others. Run the Deno tests against the new version too (`PIYO_DENO`, `core/tests/test_script_runner.py`).
 
+### Semantic memory search downloads
+
+The same rule applies to the three files behind "Find memories by meaning" (Settings > Memory): the llama.cpp release, the sqlite-vec
+loadable extension and the EmbeddingGemma 2 GGUF. They are pinned in `core/piyo/store/embedding_pins.json` (version, file name and
+SHA-256 per OS; the model by commit-pinned URL, size and SHA-256), downloaded on first use by `store/embeddings.py` `EmbeddingSetup`.
+To upgrade, take the hashes from the GitHub release's asset `digest` (`gh api repos/ggml-org/llama.cpp/releases/tags/<tag>`) or the
+Hugging Face file's `lfs.oid`, change `version` and every hash together, and **run a live check**: start a core on an empty
+`PIYO_DATA_DIR`, switch it on, and search real memories (a new llama.cpp build may not know the model's architecture, and a new model
+or `dims` re-indexes everything, which is why the pin has an `id`). Then regenerate `THIRD-PARTY-NOTICES.txt` (`scripts/licenses.py`).
+
 ## Reporting security problems
 
 Not here: see [SECURITY.md](SECURITY.md).

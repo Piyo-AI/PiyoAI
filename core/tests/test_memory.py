@@ -181,3 +181,10 @@ def test_api(tmp_path):
     assert client.delete(f"/api/memory/{mid}", headers=AUTH).status_code == 404
     assert client.put("/api/memory/nope", json={"text": "x"}, headers=AUTH).status_code == 404
     assert client.delete("/api/memory", headers=AUTH).json() == {"deleted": 1}
+
+
+def test_filler_words_do_not_match(store):
+    store.add("The dog is called Biscuit", "person")
+    store.add("Wife is called Asha", "person")
+    assert [m.text for m in store.search("who is my wife")] == ["Wife is called Asha"]
+    assert store.search("what is my football team") == []

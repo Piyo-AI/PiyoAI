@@ -13,6 +13,8 @@ datas = [
     (str(CORE / "piyo" / "skills" / "_launch.py"), "piyo/skills"),  # run by a skill's own Python, not by us
     # uv and Deno are not bundled; this says which release to download on first use, and the hash it must have
     (str(CORE / "piyo" / "skills" / "helper_tools.json"), "piyo/skills"),
+    # semantic memory search: the files it downloads on first use, their hashes and the model's settings
+    (str(CORE / "piyo" / "store" / "embedding_pins.json"), "piyo/store"),
 ]
 binaries = []
 hiddenimports = []

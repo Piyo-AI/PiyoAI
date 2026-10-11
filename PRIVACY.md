@@ -25,6 +25,11 @@ your computer. API keys and tokens are stored in your operating system's keychai
 - **Script runtimes.** The first time a skill script needs `uv` (Python) or Deno (JavaScript and TypeScript), Piyo downloads
   that program from its official GitHub release (about 20 and 45 MB), and only runs it after the file matches a fingerprint
   built into Piyo. The approval card for that script tells you the first run will download it. Nothing about you is sent.
+- **Finding memories by meaning (optional, off by default).** When you turn it on in Settings > Memory, Piyo downloads about
+  330 MB once: a small vector-search library and the llama.cpp program from their official GitHub releases, and Google's
+  EmbeddingGemma 2 model from Hugging Face. Each file is only used after it matches a fingerprint built into Piyo. After that
+  it runs on your computer only: your memories are turned into numbers by a program that listens on your own machine
+  (loopback, with a random key), and nothing about them is sent anywhere. Settings > Memory can delete the files and the numbers.
 
 Piyo asks before it sends, buys, deletes or submits anything, and never reads keys, passwords or protected folders.
 

@@ -245,6 +245,22 @@ def program_packages() -> list[Package]:
             ("LICENSE.md", fetch(f"https://raw.githubusercontent.com/denoland/deno/v{deno}/LICENSE.md")),
         ]),
     ]
+    emb = json.loads((CORE / "piyo" / "store" / "embedding_pins.json").read_text(encoding="utf-8"))
+    llama, vec = emb["llama"]["version"], emb["sqlite-vec"]["version"]
+    vec_apache = fetch(f"https://raw.githubusercontent.com/asg017/sqlite-vec/v{vec}/LICENSE-APACHE")
+    out += [
+        Package("program", "llama.cpp (semantic memory search)", llama, "MIT", [
+            ("LICENSE", fetch(f"https://raw.githubusercontent.com/ggml-org/llama.cpp/{llama}/LICENSE")),
+        ]),
+        Package("program", "sqlite-vec (semantic memory search)", vec, "MIT OR Apache-2.0", [
+            ("LICENSE-MIT", fetch(f"https://raw.githubusercontent.com/asg017/sqlite-vec/v{vec}/LICENSE-MIT")),
+            ("LICENSE-APACHE", vec_apache),
+        ]),
+        # The model card says apache-2.0 and the repo has no licence file of its own: this is the standard text.
+        Package("asset", "EmbeddingGemma 2 model weights (Google, GGUF by ggml-org)", "Q8_0", "Apache-2.0", [
+            ("LICENSE (Apache-2.0)", vec_apache),
+        ]),
+    ]
     out.append(
         Package("asset", "noto-emoji chick (app icon)", NOTO_COMMIT[:7], "Apache-2.0", [
             ("LICENSE", fetch(f"https://raw.githubusercontent.com/googlefonts/noto-emoji/{NOTO_COMMIT}/2D/svg/LICENSE")),
