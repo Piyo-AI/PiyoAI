@@ -194,9 +194,13 @@ class SchedulerStore:
         d = dict(row)
         return Pending(**{**d, "arguments": json.loads(d["arguments"])})
 
-    def add_pending(self, job: Job, tool: str, arguments: dict, summary: str) -> Pending:
+    def add_pending(
+        self, job: Job, tool: str, arguments: dict, summary: str, created_at: datetime | None = None
+    ) -> Pending:
+        """`created_at` is the scheduler's own clock, which is what expiry is measured against."""
+        stamp = created_at.astimezone(UTC).isoformat(timespec="seconds") if created_at else _now()
         item = Pending(
-            uuid.uuid4().hex[:12], job.id, job.title, None, tool, arguments, summary, "pending", None, _now()
+            uuid.uuid4().hex[:12], job.id, job.title, None, tool, arguments, summary, "pending", None, stamp
         )
         with self._lock, closing(self._connect()) as db, db:
             db.execute(

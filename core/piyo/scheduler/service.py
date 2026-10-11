@@ -96,7 +96,9 @@ class Scheduler:
 
     def _approver(self, job: Job, held: list[Pending]):
         async def hold(request: ApprovalRequest) -> bool:
-            item = self.store.add_pending(job, request.tool, request.arguments, request.summary)
+            item = self.store.add_pending(
+                job, request.tool, request.arguments, request.summary, self._clock()
+            )
             held.append(item)
             raise ApprovalDeferred(
                 "This is a scheduled run and the user is not here to approve. The action was NOT done; "
