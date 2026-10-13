@@ -81,6 +81,10 @@ export interface McpServerIn {
   args: string[];
   env: Record<string, string>; // plain settings
   secrets: string[]; // names; values are set one by one and go to the keychain
+  // npx servers run in Deno's sandbox: what they may reach beyond their own folder
+  allow_net?: string[]; // sites; "*" for any
+  allow_read?: string[];
+  allow_write?: string[];
 }
 
 export interface McpTool {
@@ -102,6 +106,12 @@ export interface McpServer {
   env: Record<string, string>;
   secrets: { name: string; set: boolean }[]; // values are never sent back
   enabled: boolean;
+  sandbox: boolean; // an npx server, run in Deno's sandbox
+  npm_version: string | null; // pinned at its first start
+  allow_net: string[];
+  allow_read: string[];
+  allow_write: string[];
+  blocked: { kind: string; target: string }[]; // what the sandbox refused that is not allowed yet
   always_on: boolean;
   state: "stopped" | "starting" | "running" | "failed";
   error: string | null;

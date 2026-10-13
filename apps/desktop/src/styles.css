@@ -1722,3 +1722,19 @@ pre.telemetry-events {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.mcp-sandbox {
+  margin: 6px 0;
+}
+
+.mcp-allow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.mcp-allow .memory-add {
+  flex: 1 1 260px;
+}

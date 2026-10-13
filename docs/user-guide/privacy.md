@@ -19,8 +19,8 @@ Only things you set up or ask for:
 - **Web searches** go to Brave with the words searched. **Pages Piyo opens** are requested from those sites.
 - **Google** features talk to Google using the connection you created.
 - **The catalog and updates** contact GitHub; they do not send your data.
-- **MCP servers you add** get what Piyo sends to their tools, and can contact whatever they like: they are programs
-  running as you. See [MCP servers](mcp.md).
+- **MCP servers you add** get what Piyo sends to their tools. An `npx` server can reach only the sites you allowed
+  it; any other kind can contact whatever it likes. See [MCP servers](mcp.md).
 
 ## What Piyo refuses to do
 

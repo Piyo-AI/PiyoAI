@@ -136,9 +136,7 @@ class McpClient:
     async def call(self, tool: str, arguments: dict, timeout: float | None = None) -> mt.CallToolResult:
         timeout = timeout or CALL_TIMEOUT_S
         session = await self.session()
-        return await self._timed(
-            session.call_tool(tool, arguments), f"run {tool}", timeout
-        )
+        return await self._timed(session.call_tool(tool, arguments), f"run {tool}", timeout)
 
     async def _timed(self, work: Awaitable, what: str, timeout: float | None = None):
         timeout = timeout or CALL_TIMEOUT_S

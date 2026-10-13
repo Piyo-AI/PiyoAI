@@ -27,8 +27,9 @@ your computer. API keys and tokens are stored in your operating system's keychai
   built into Piyo. The approval card for that script tells you the first run will download it. Nothing about you is sent.
 - **MCP servers you add.** A server you add in Settings > MCP servers gets what Piyo sends to its tools (each call
   shown to you first unless you ticked "Run without asking"), the settings you gave it and its own secrets. What it does
-  with them, and whom it contacts, is up to that program: it runs on your computer as you. `npx` servers may download
-  their package from npm, `uvx` ones from PyPI, when they start.
+  with them, and whom it contacts, is up to that program; an `npx` server runs in Piyo's sandbox and can reach only the
+  sites and folders you allowed it, any other runs on your computer as you. `npx` servers download their package from
+  npm (Piyo looks up its version there once), `uvx` ones from PyPI, when they first start.
 - **Finding memories by meaning (optional, off by default).** When you turn it on in Settings > Memory, Piyo downloads about
   330 MB once: a small vector-search library and the llama.cpp program from their official GitHub releases, and Google's
   EmbeddingGemma 2 model from Hugging Face. Each file is only used after it matches a fingerprint built into Piyo. After that

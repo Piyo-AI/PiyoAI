@@ -28,6 +28,7 @@ from mcp import types as mt
 
 from piyo.integrations.mcp.client import McpClient, McpError
 from piyo.integrations.mcp.config import McpServer, McpServers, McpTool, secret_key, tool_hash
+from piyo.integrations.mcp.deno import VersionLookup, blocked_requests, deno_args, npm_latest, split_npx
 from piyo.safety.untrusted import wrap_untrusted
 from piyo.tools.base import Risk, RunContext, Tool, ToolRegistry
 
@@ -102,9 +103,8 @@ def result_text(result: mt.CallToolResult, ctx: RunContext) -> str:
 
 
 SecretGetter = Callable[[str], str | None]
-ProgramFinder = Callable[
-    [str], Awaitable[str]
-]  # "uv" -> its path (Piyo's helper download, piyo.skills.helper_tools)
+# "uv" or "deno" -> its path (Piyo's helper download, piyo.skills.helper_tools)
+ProgramFinder = Callable[[str], Awaitable[str]]
 
 
 class McpManager:
@@ -116,10 +116,13 @@ class McpManager:
         program: ProgramFinder,
         work_dir: Path,
         launch_override: Callable[[McpServer], Awaitable[StdioServerParameters]] | None = None,
+        npm_version: VersionLookup = npm_latest,
     ) -> None:
         self.store, self.registry, self._get_secret, self._program = store, registry, get_secret, program
         self.work_dir = work_dir
         self._launch_override = launch_override  # tests
+        self._npm_version = npm_version
+        self._blocked: dict[str, list[tuple[str, str]]] = {}  # what Deno refused, seen in results
         self.clients: dict[str, McpClient] = {}
         self._registered: dict[str, list[str]] = {}  # server -> internal tool names in the registry
 
@@ -129,9 +132,20 @@ class McpManager:
         if self._launch_override:
             return await self._launch_override(server)
         command, args = server.command, list(server.args)
+        home = self.work_dir / server.name
+        home.mkdir(parents=True, exist_ok=True)
+        env = {"NO_COLOR": "1"}
         if command in ("uvx", "uv"):  # Piyo's own uv, downloaded the first time it is needed
             uv = await self._program("uv")
             command, args = uv, (["tool", "run", *args] if server.command == "uvx" else args)
+        elif command == "npx":  # in Deno's sandbox (deno.py), with Piyo's own Deno
+            package, version, server_args = split_npx(args)
+            version = version or server.npm_version or await self._pin(server.name, package)
+            cache = self.work_dir / "deno-cache"
+            cache.mkdir(parents=True, exist_ok=True)
+            command = await self._program("deno")
+            args = deno_args(server, package, version, server_args, cache, home)
+            env |= {"DENO_DIR": str(cache), "DENO_NO_UPDATE_CHECK": "1"}
         else:
             found = shutil.which(command)
             if found is None:
@@ -140,13 +154,44 @@ class McpManager:
                     f"Piyo could not find the program {command!r}.{hint} Install it or give its full path."
                 )
             command = found
-        env = dict(server.env)
+        env |= server.env
         for name in server.secrets:
             if value := self._get_secret(secret_key(server.name, name)):
                 env[name] = value
-        cwd = self.work_dir / server.name
-        cwd.mkdir(parents=True, exist_ok=True)
-        return StdioServerParameters(command=command, args=args, env=env, cwd=cwd)
+        return StdioServerParameters(command=command, args=args, env=env, cwd=home)
+
+    async def _pin(self, name: str, package: str) -> str:
+        """First start of an npx server without a version: run today's version from now on."""
+        version = await self._npm_version(package)
+        server = self.store.get(name)
+        server.npm_version = version
+        self.store.save(server)
+        return version
+
+    def blocked(self, name: str) -> list[tuple[str, str]]:
+        """What Deno refused this server (in its results and output) that the user has not allowed since."""
+        try:
+            server = self.store.get(name)
+        except KeyError:
+            return []
+        log = "\n".join(self.clients[name].log_tail(200)) if name in self.clients else ""
+        allowed = {
+            "net": set(server.allow_net),
+            "read": {*server.allow_read, *server.allow_write},
+            "write": set(server.allow_write),
+        }
+        found = [*self._blocked.get(name, []), *blocked_requests(log)]
+        if "*" in server.allow_net:
+            allowed["net"].add("*")
+        return [
+            b
+            for b in dict.fromkeys(found)
+            if b[1] not in allowed.get(b[0], set()) and not (b[0] == "net" and "*" in allowed["net"])
+        ]
+
+    def _note_blocked(self, name: str, text: str) -> None:
+        if found := blocked_requests(text):
+            self._blocked[name] = list(dict.fromkeys([*self._blocked.get(name, []), *found]))[-20:]
 
     def client(self, name: str) -> McpClient:
         if name not in self.clients:
@@ -249,8 +294,13 @@ class McpManager:
                     "off "
                     "until they review it in Settings > MCP servers. Tell the user."
                 )
-            result = await client.call(tool.name, args)
+            try:
+                result = await client.call(tool.name, args)
+            except McpError as e:
+                self._note_blocked(server, str(e))
+                raise
             text = result_text(result, ctx)
+            self._note_blocked(server, text)
             fenced = wrap_untrusted(text, f"MCP server {server}, tool {tool.name}")
             if result.is_error:  # the server's own words, so fenced like a result
                 raise McpError(f"The MCP server {server!r} reported an error: {fenced}")

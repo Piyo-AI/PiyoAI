@@ -222,9 +222,7 @@ async def test_server_errors_crashes_and_timeouts_become_error_results(mcp, tmp_
     go, _ = run_agent(mcp, tmp_path, calls)
     events = await go()
     results = {e.name: e for e in events if isinstance(e, ToolFinished)}
-    assert (
-        results["mcp__fake__broken"].is_error and f"<{TAG}" in results["mcp__fake__broken"].output
-    )
+    assert results["mcp__fake__broken"].is_error and f"<{TAG}" in results["mcp__fake__broken"].output
     assert results["mcp__fake__crash"].is_error
     assert not results["mcp__fake__add"].is_error  # started again after the crash
     assert results["mcp__fake__slow"].is_error and "within 1 s" in results["mcp__fake__slow"].output
@@ -368,3 +366,134 @@ async def _approve_once(tmp_path):
     manager.store.add(fake_server())
     await approve_all(manager)
     await manager.stop_all()
+
+
+# -- npx servers in Deno -------------------------------------------------------------------
+
+
+def test_npx_arguments_become_a_package_and_its_own_arguments():
+    from piyo.integrations.mcp.deno import split_npx
+
+    assert split_npx(["-y", "@modelcontextprotocol/server-filesystem", "/data"]) == (
+        "@modelcontextprotocol/server-filesystem",
+        None,
+        ["/data"],
+    )
+    assert split_npx(["--yes", "pkg@1.2.3", "--flag"]) == ("pkg", "1.2.3", ["--flag"])
+    assert split_npx(["@scope/pkg@latest"]) == ("@scope/pkg", "latest", [])
+    for bad in ([], ["-y"], ["--package", "x", "cmd"], ["not a package"]):
+        with pytest.raises(Exception, match="npx|npm package"):
+            split_npx(bad)
+
+
+def test_deno_gets_the_baseline_and_only_what_the_user_allowed(tmp_path):
+    from piyo.integrations.mcp.deno import deno_args
+
+    cache, home = tmp_path / "cache", tmp_path / "home"
+    server = McpServer(
+        name="s", command="npx", allow_read=[str(tmp_path / "r")], allow_write=[str(tmp_path / "w")]
+    )
+    args = deno_args(server, "pkg", "1.0.0", ["x"], cache, home)
+    assert args[:5] == ["run", "--no-prompt", "--no-lock", "--no-config", "--allow-env"]
+    assert args[-2:] == ["npm:pkg@1.0.0", "x"]
+    read = next(a for a in args if a.startswith("--allow-read=")).split("=", 1)[1].split(",")
+    write = next(a for a in args if a.startswith("--allow-write=")).split("=", 1)[1].split(",")
+    assert read == [str(cache), str(home), str(tmp_path / "r"), str(tmp_path / "w")]
+    assert write == [str(home), str(tmp_path / "w")]
+    assert not any(
+        a.startswith(("--allow-net", "--allow-run", "--allow-ffi", "--allow-sys", "-A")) for a in args
+    )
+    server.allow_net = ["api.example.com"]
+    assert "--allow-net=api.example.com" in deno_args(server, "pkg", "1", [], cache, home)
+    server.allow_net = ["*"]
+    assert "--allow-net" in deno_args(server, "pkg", "1", [], cache, home)
+
+
+def test_what_deno_refused_is_read_from_its_messages():
+    from piyo.integrations.mcp.deno import blocked_requests
+
+    text = (
+        'Error: NotCapable: Requires net access to "context7.com:443", run again with the --allow-net flag\n'
+        'NotCapable: Requires read access to "C:\\data\\a.txt"\nRequires net access to "context7.com:443"'
+    )
+    assert blocked_requests(text) == [("net", "context7.com"), ("read", "C:\\data\\a.txt")]
+
+
+def test_sandbox_settings_are_checked(tmp_path):
+    store = McpServers()
+    for kw, match in (
+        ({"allow_net": ["not a host"]}, "site name"),
+        ({"allow_read": ["relative/path"]}, "full path"),
+        ({"allow_write": [str(Path.home())]}, None),
+    ):
+        with pytest.raises(McpConfigError, match=match):
+            store.add(McpServer(name="s", command="npx", **kw))
+    store.add(
+        McpServer(
+            name="s", command="npx", allow_net=["api.example.com:8443", "*"], allow_read=[str(tmp_path)]
+        )
+    )
+
+
+async def test_an_npx_server_runs_in_deno_at_a_pinned_version(tmp_path):
+    looked_up = []
+
+    async def program(tool):
+        return f"/bin/{tool}"
+
+    async def latest(package):
+        looked_up.append(package)
+        return "2.0.1"
+
+    manager = McpManager(
+        McpServers(), ToolRegistry(), SECRETS.get, program, tmp_path / "mcp", npm_version=latest
+    )
+    manager.store.add(
+        McpServer(name="pkg", command="npx", args=["-y", "@acme/server", "--x"], env={"A": "1"})
+    )
+    params = await manager.launch_params(manager.store.get("pkg"))
+    assert params.command == "/bin/deno" and params.args[-2:] == ["npm:@acme/server@2.0.1", "--x"]
+    assert params.env["DENO_DIR"].endswith("deno-cache") and params.env["A"] == "1"
+    assert manager.store.get("pkg").npm_version == "2.0.1"
+    await manager.launch_params(manager.store.get("pkg"))
+    assert looked_up == ["@acme/server"]  # pinned: not looked up again
+
+
+def test_api_shows_blocked_requests_and_allowing_one_restarts_the_server(tmp_path):
+    with TestClient(server_app.create_app(TOKEN, start_scheduler=False)) as client:
+        body = {"name": "ctx", "command": "npx", "args": ["-y", "some-server"]}
+        made = client.post("/api/mcp/servers", json=body, headers=AUTH).json()
+        assert made["sandbox"] is True and made["blocked"] == [] and made["npm_version"] is None
+        manager = client.app.state.mcp
+        manager._note_blocked("ctx", 'Requires net access to "api.ctx.dev:443"')
+        assert client.get("/api/mcp/servers", headers=AUTH).json()[0]["blocked"] == [
+            {"kind": "net", "target": "api.ctx.dev"}
+        ]
+        allowed = client.put("/api/mcp/servers/ctx", json={"allow_net": ["api.ctx.dev"]}, headers=AUTH).json()
+        assert allowed["allow_net"] == ["api.ctx.dev"] and allowed["blocked"] == []
+        bad = client.put("/api/mcp/servers/ctx", json={"allow_write": [str(Path.home())]}, headers=AUTH)
+        assert bad.status_code == 400
+
+
+@pytest.mark.skipif(
+    not __import__("os").environ.get("PIYO_MCP_NPM_TEST"),
+    reason="downloads from npm; set PIYO_MCP_NPM_TEST=1",
+)
+async def test_a_real_npm_server_runs_in_deno(tmp_path):
+    from piyo.skills.helper_tools import HelperTools
+
+    helpers = HelperTools()
+    manager = McpManager(McpServers(), ToolRegistry(), SECRETS.get, helpers.ensure, tmp_path / "mcp")
+    manager.store.add(
+        McpServer(name="every", command="npx", args=["-y", "@modelcontextprotocol/server-everything"])
+    )
+    try:
+        server = await manager.discover("every")
+        assert "echo" in server.changed and server.npm_version
+        manager.approve("every", {"echo": server.changed["echo"].hash})
+        from piyo.tools import RunContext
+
+        ctx = RunContext(skills=SkillRegistry(builtin_dir=tmp_path, user_dir=tmp_path))
+        assert "Echo: hi" in await manager.registry.get("mcp.every.echo").handler({"message": "hi"}, ctx)
+    finally:
+        await manager.stop_all()

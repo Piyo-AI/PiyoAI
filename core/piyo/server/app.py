@@ -638,6 +638,10 @@ class McpServerIn(BaseModel):
     args: list[str] = []
     env: dict[str, str] = {}  # plain settings
     secrets: list[str] = []  # names only; values go through PUT .../secrets/{name}
+    # npx servers run in Deno: the sites ("*" for any), folders to read and folders to write they may use
+    allow_net: list[str] = []
+    allow_read: list[str] = []
+    allow_write: list[str] = []
 
 
 class McpServerEdit(BaseModel):
@@ -647,6 +651,9 @@ class McpServerEdit(BaseModel):
     secrets: list[str] | None = None
     enabled: bool | None = None
     always_on: bool | None = None
+    allow_net: list[str] | None = None
+    allow_read: list[str] | None = None
+    allow_write: list[str] | None = None
 
 
 class McpToolOut(BaseModel):
@@ -666,6 +673,11 @@ class McpSecretOut(BaseModel):
     set: bool
 
 
+class McpBlockedOut(BaseModel):
+    kind: str  # net | read | write | env | run | sys | ffi | import
+    target: str
+
+
 class McpServerOut(BaseModel):
     name: str
     command: str
@@ -674,6 +686,12 @@ class McpServerOut(BaseModel):
     secrets: list[McpSecretOut]
     enabled: bool
     always_on: bool
+    sandbox: bool  # runs in Deno's sandbox (an npx server)
+    npm_version: str | None  # the pinned package version, once it has started
+    allow_net: list[str]
+    allow_read: list[str]
+    allow_write: list[str]
+    blocked: list[McpBlockedOut]  # what the sandbox refused that is not allowed yet
     state: str  # stopped | starting | running | failed
     error: str | None
     tools: list[McpToolOut]
@@ -1913,6 +1931,9 @@ def create_app(
                 for n in server.secrets
             ],
             enabled=server.enabled, always_on=server.always_on,
+            sandbox=server.command == "npx", npm_version=server.npm_version,
+            allow_net=server.allow_net, allow_read=server.allow_read, allow_write=server.allow_write,
+            blocked=[McpBlockedOut(kind=k, target=t) for k, t in mcp_manager.blocked(server.name)],
             state=client.state if client else "stopped", error=client.error if client else None,
             tools=tools_out, log=client.log_tail() if client else [],
         )
@@ -1940,10 +1961,12 @@ def create_app(
         server = mcp_or_404(name)
         changes = body.model_dump(exclude_none=True)
         program = (server.command, server.args, server.env, server.secrets)
+        sandbox = (server.allow_net, server.allow_read, server.allow_write)
         for key, value in changes.items():
             setattr(server, key, value)
         if (server.command, server.args) != program[:2]:
             server.tools, server.changed = {}, {}  # another program: its tools are reviewed from scratch
+            server.npm_version = None
         if server.always_on and len(server.approved()) > ALWAYS_ON_MAX_TOOLS:
             raise HTTPException(
                 status_code=400,
@@ -1957,7 +1980,9 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(e)) from None
         for gone in set(program[3]) - set(server.secrets):
             delete_secret(mcp_secret_key(name, gone))
-        if (server.command, server.args, server.env, server.secrets) != program or not server.enabled:
+        changed = (server.command, server.args, server.env, server.secrets) != program
+        changed = changed or (server.allow_net, server.allow_read, server.allow_write) != sandbox
+        if changed or not server.enabled:
             await mcp_manager.stop(name)  # the next use starts it with the new settings
         mcp_manager.sync(name)
         return mcp_out(server)

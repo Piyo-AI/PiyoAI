@@ -6,21 +6,34 @@ its own tools.
 
 ## Before you add one
 
-A server runs on your computer **as you**. It can read and change anything you can, and Piyo cannot check what it
-does. Add only servers from people you trust, the same as any program you install.
+A server runs on your computer. One started with `npx` runs in Piyo's sandbox and reaches only what you allow;
+any other (`uvx`, or a program you name) runs **as you** and can read and change anything you can. Piyo cannot check
+what a server does. Add only servers from people you trust, the same as any program you install.
 
 ## Adding a server
 
 Open **Settings > MCP servers** and fill in **Add a server** from the server's own instructions:
 
 - **Name**: a short name you choose, like `github` (lowercase letters, digits and dashes).
-- **Command** and **Arguments**: what starts it. `npx` needs Node.js installed (nodejs.org). For `uvx` or `uv`,
-  Piyo uses its own copy of uv (downloaded the first time it is needed).
+- **Command** and **Arguments**: what starts it. For `npx`, Piyo runs the server in its own sandbox (Deno,
+  downloaded the first time it is needed), so you do not need Node.js. For `uvx` or `uv`, Piyo uses its own copy of
+  uv; those servers run without a sandbox.
 - **Settings**: plain `KEY=value` lines the server reads. Do not put keys or passwords here.
 - **Secrets**: the names of keys or tokens it needs, like `GITHUB_TOKEN`. After adding the server, type each value
   in the box under it. Values go to your system keychain, are given only to that server, and are never shown again.
 
 Piyo then starts the server once and lists its tools.
+
+## The sandbox for npx servers
+
+An `npx` server can only use its own folder until you allow more. Under **Sites it may reach**, **Folders it may
+read** and **Folders it may change** you add what it needs (the server's instructions usually say; a file server
+needs the folders it serves). When the server tries something it may not, the page shows what it was refused with an
+**Allow** button. It is never allowed to start other programs.
+
+The first time it starts, Piyo notes the package's version and keeps using it, so the code you checked is the code
+that runs. To move to a newer version, change its arguments (for example `some-package@2.1.0`) and review its tools
+again.
 
 ## Reviewing its tools
 

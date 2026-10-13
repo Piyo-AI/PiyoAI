@@ -12,8 +12,10 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 from piyo.config import data_dir
+from piyo.config.protected import broad_reason, protected_reason
 
 NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?")
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
@@ -61,6 +63,13 @@ class McpServer:
     secrets: list[str] = field(default_factory=list)  # environment names whose values are in the keychain
     enabled: bool = True
     always_on: bool = False  # its approved tools are offered in every run, not only through a skill
+    # An `npx` server runs in Deno's sandbox (deno.py): what the user lets it reach beyond its own folder.
+    allow_net: list[str] = field(default_factory=list)  # hosts, or "*" for any
+    allow_read: list[str] = field(default_factory=list)  # absolute folders or files
+    allow_write: list[str] = field(default_factory=list)
+    npm_version: str | None = (
+        None  # the package version pinned at its first start; runs until the user updates
+    )
     tools: dict[str, McpTool] = field(default_factory=dict)  # approved definitions
     changed: dict[str, McpTool] = field(default_factory=dict)  # new or changed, waiting for the user
 
@@ -72,6 +81,19 @@ class McpServer:
 def secret_key(server: str, name: str) -> str:
     """The keychain entry for one of a server's secrets."""
     return f"mcp.{server}.{name}"
+
+
+HOST = re.compile(r"(?:\*|[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(?::\d{1,5})?)")
+MAX_ALLOWED = 30
+
+
+def path_problem(raw: str) -> str | None:
+    """Why a folder cannot be given to a server, or None. The same limits as approving a folder for Piyo."""
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        return f"{raw!r} must be a full path."
+    resolved = path.resolve()
+    return protected_reason(resolved) or broad_reason(resolved)
 
 
 def check_server(server: McpServer) -> None:
@@ -90,6 +112,14 @@ def check_server(server: McpServer) -> None:
         raise McpConfigError("A name cannot be both a plain setting and a secret.")
     if any(len(v) > MAX_ARG_CHARS for v in server.env.values()):
         raise McpConfigError(f"Environment values are at most {MAX_ARG_CHARS} characters.")
+    if max(len(server.allow_net), len(server.allow_read), len(server.allow_write)) > MAX_ALLOWED:
+        raise McpConfigError(f"At most {MAX_ALLOWED} sites or folders of each kind.")
+    for host in server.allow_net:
+        if not HOST.fullmatch(host):
+            raise McpConfigError(f"{host!r} is not a site name like example.com.")
+    for raw in [*server.allow_read, *server.allow_write]:
+        if problem := path_problem(raw):
+            raise McpConfigError(f"{raw}: {problem}")
 
 
 def _tool(raw: dict) -> McpTool:
@@ -112,6 +142,10 @@ def _server(raw: dict) -> McpServer:
         secrets=[str(s) for s in raw.get("secrets") or []],
         enabled=raw.get("enabled") is not False,
         always_on=raw.get("always_on") is True,
+        allow_net=[str(h) for h in raw.get("allow_net") or []],
+        allow_read=[str(h) for h in raw.get("allow_read") or []],
+        allow_write=[str(h) for h in raw.get("allow_write") or []],
+        npm_version=str(raw["npm_version"]) if raw.get("npm_version") else None,
         tools={str(k): _tool(v) for k, v in (raw.get("tools") or {}).items()},
         changed={str(k): _tool(v) for k, v in (raw.get("changed") or {}).items()},
     )
