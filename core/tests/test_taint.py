@@ -121,8 +121,9 @@ def test_classification_covers_both_wire_names():
 # Every registered tool is either known to return text somebody else wrote or known not to. A new tool fails
 # this test until someone decides which: the answer decides whether memory.remember asks after it runs.
 OWN_TEXT = {
-    "current_time", "load_skill", "files.folders", "files.write", "files.create_folder", "files.move",
-    "files.delete", "google.accounts", "memory.forget", "memory.recall", "memory.remember",
+    "agent.cancel", "agent.create", "agent.list", "current_time", "load_skill", "files.folders",
+    "files.write", "files.create_folder", "files.move", "files.delete", "google.accounts", "memory.forget",
+    "memory.recall", "memory.remember",
     "schedule.cancel", "schedule.create", "schedule.list", "ui.show", "weather.forecast",
 }
 

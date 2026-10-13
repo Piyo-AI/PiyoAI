@@ -173,8 +173,9 @@ def test_the_real_outbound_tools_carry_the_guard():
 # this test until someone decides which: the answer decides whether outbound tools ask after it runs.
 PUBLIC = {
     "browser.click", "browser.open", "browser.read", "browser.screenshot", "browser.type", "browser.wait",
-    "current_time", "load_skill", "memory.forget", "memory.remember", "schedule.cancel", "schedule.create",
-    "schedule.list", "ui.show", "weather.forecast", "web.fetch", "web.search",
+    "agent.cancel", "agent.create", "agent.list", "current_time", "load_skill", "memory.forget",
+    "memory.remember", "schedule.cancel", "schedule.create", "schedule.list", "ui.show", "weather.forecast",
+    "web.fetch", "web.search",
 }
 
 

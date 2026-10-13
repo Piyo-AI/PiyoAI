@@ -19,8 +19,9 @@ from pathlib import Path
 
 from send2trash import send2trash
 
-from piyo.config.folders import ApprovedFolders
+from piyo.config.folders import ApprovedFolders, FolderGrant
 from piyo.config.protected import broad_reason, protected_reason
+from piyo.safety.scope import current_scope
 from piyo.safety.untrusted import wrap_untrusted
 from piyo.tools.base import Risk, RunContext, Tool
 
@@ -38,10 +39,32 @@ class FileTools:
     def __init__(self, folders: ApprovedFolders) -> None:
         self._folders = folders
 
+    def _workspace(self) -> Path | None:
+        """Where relative paths land: the agent's own folder in an agent run, else Piyo's workspace."""
+        scope = current_scope()
+        if scope is not None:
+            return scope.home.resolve() if scope.home else None
+        return self._folders.workspace
+
+    def _grants(self) -> list[FolderGrant]:
+        """The folders this run may use. An agent gets its own folder plus the approved folders its scope
+        names (all of them for an agent made before scopes), never the workspace or another agent's folder."""
+        scope = current_scope()
+        if scope is None:
+            return self._folders.list()
+        workspace = self._folders.workspace
+        grants = [g for g in self._folders.list() if g.path.resolve() != workspace]
+        if scope.folders is not None:
+            wanted = {Path(f).expanduser().resolve() for f in scope.folders}
+            grants = [g for g in grants if g.path.resolve() in wanted]
+        if scope.home is not None:
+            grants.append(FolderGrant(scope.home.resolve(), auto_changes=True))
+        return grants
+
     def _resolve(self, raw: object) -> tuple[Path, Path]:
         """Return (resolved path, the approved root containing it)."""
         # A folder approved before the breadth check existed (a drive, the home folder) is ignored.
-        roots = [r for r in (g.path.resolve() for g in self._folders.list()) if not broad_reason(r)]
+        roots = [r for r in (g.path.resolve() for g in self._grants()) if not broad_reason(r)]
         if not roots:
             raise FileAccessError(
                 "No folders are approved for file access. Ask the user to add one in Settings."
@@ -49,7 +72,7 @@ class FileTools:
         if not isinstance(raw, str) or not raw.strip():
             raise FileAccessError("A path is required.")
         path = Path(raw).expanduser()
-        workspace = self._folders.workspace
+        workspace = self._workspace()
         if not path.is_absolute():
             if workspace is None:
                 raise FileAccessError(f"Use a full path, not {raw!r}.")
@@ -77,7 +100,7 @@ class FileTools:
             _, root = self._resolve(raw)
         except FileAccessError:
             return False
-        return any(g.auto_changes and g.path.resolve() == root for g in self._folders.list())
+        return any(g.auto_changes and g.path.resolve() == root for g in self._grants())
 
     # One-line descriptions for the approval card, from the real arguments (see `Tool.summarize`).
     def summary_write(self, args: dict) -> str:
@@ -108,15 +131,16 @@ class FileTools:
         return Risk.AUTO if both else Risk.CONFIRM
 
     async def folders(self, args: dict, ctx: RunContext) -> str:
-        grants = self._folders.list()
+        grants = self._grants()
         if not grants:
             return "No folders are approved for file access. Ask the user to add one in Settings."
-        workspace = self._folders.workspace
+        workspace = self._workspace()
         lines = []
         if workspace is not None:
+            what = "your own folder" if current_scope() is not None else "the workspace"
             lines.append(
                 f"Your workspace is {workspace}. Save new files and folders there unless the user "
-                "names another approved folder; a relative path such as notes/todo.txt means the workspace."
+                f"names another approved folder; a relative path such as notes/todo.txt means {what}."
             )
         lines.append("Approved folders (reading is always allowed in them):")
         for g in grants:

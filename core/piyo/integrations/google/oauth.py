@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import httpx
 
 from piyo.config.secrets import delete_secret, get_secret, set_secret
+from piyo.safety.scope import current_scope
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -200,6 +201,19 @@ class GoogleAuth:
             raise GoogleError(
                 "not_connected", "Google is not connected. Ask the user to connect it in Settings."
             )
+        scope = current_scope()
+        if scope is not None and scope.accounts is not None:  # an agent may use only the accounts it got
+            allowed = [i for i in ids if i in scope.accounts]
+            asked = account.strip().lower() if isinstance(account, str) else ""
+            if asked in ids and asked not in allowed:
+                raise GoogleError(
+                    "bad_account",
+                    f"This agent may not use {account.strip()[:80]!r}. "
+                    f"It may use: {', '.join(allowed) or 'no Google account'}.",
+                )
+            if not allowed:
+                raise GoogleError("bad_account", "This agent may not use any Google account.")
+            ids = allowed
         if isinstance(account, str) and account.strip():
             wanted = account.strip().lower()
             if wanted in ids:

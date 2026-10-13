@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -17,6 +18,7 @@ from pydantic import BaseModel, ValidationError
 
 from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
+from piyo.agents import AgentManager, RunControl
 from piyo.config import data_dir, workspace_dir
 from piyo.config.browser_rules import BrowserRules
 from piyo.config.folders import ApprovedFolders, FolderGrant
@@ -45,7 +47,9 @@ from piyo.models.prompt_tools import native_with_fallback, prompt_turn
 from piyo.models.turn import Message, stream_turn
 from piyo.runtime import frozen
 from piyo.safety import ApprovalRequest, PermissionGate
-from piyo.scheduler import RuleError, RunResult, Scheduler, SchedulerStore, describe
+from piyo.safety.scope import LEGACY, NEW_AGENT, Scope, ScopeError, parse_scope, use_scope
+from piyo.scheduler import Job, RuleError, RunResult, Scheduler, SchedulerStore, describe
+from piyo.scheduler.store import folder_name
 from piyo.skills import SkillError, SkillRegistry, git_token
 from piyo.skills.catalog import CatalogClient, CatalogEntry, CatalogError
 from piyo.skills.editor import TEMPLATE, SkillEditor
@@ -77,6 +81,7 @@ from piyo.store.memory import SENSITIVE_CATEGORIES, MemoryRefused, MemorySetting
 from piyo.telemetry import Telemetry, read_shell_crashes
 from piyo.tools import RunContext, ToolRegistry, core_tools
 from piyo.tools import search as search_mod
+from piyo.tools.agents import agent_tools
 from piyo.tools.browser import BrowserInstaller, BrowserSession, PlaywrightSession, browser_tools
 from piyo.tools.calendar import calendar_tools
 from piyo.tools.files import file_tools
@@ -252,6 +257,70 @@ class SemanticOut(BaseModel):
 
 class SemanticIn(BaseModel):
     enabled: bool
+
+
+class ScopeIO(BaseModel):
+    """What an agent may use; null lists mean "any" (see `piyo.safety.scope`)."""
+
+    skills: list[str] | None = None
+    folders: list[str] | None = None
+    accounts: list[str] | None = None
+    browser: str = "fresh"
+
+
+class AgentRunOut(BaseModel):
+    id: str
+    job_id: str
+    state: str
+    reason: str | None
+    conversation_id: str | None
+    held: int
+    created_at: str
+    updated_at: str
+
+
+class AgentOut(BaseModel):
+    id: str
+    title: str
+    prompt: str
+    rule: dict | None  # None: runs only when started
+    when: str
+    provider: str
+    model: str
+    enabled: bool
+    next_run: str | None
+    last_run: str | None
+    last_status: str | None
+    last_conversation_id: str | None
+    scope: ScopeIO
+    scope_text: str  # the scope in words, as an approval card shows it
+    legacy: bool  # made before scopes: may use what scheduled jobs always could
+    priority: str
+    budget: dict | None
+    folder: str | None  # its own folder (full path), where relative paths land
+    run: AgentRunOut | None  # the run going on now, if any
+
+
+class AgentIn(BaseModel):
+    title: str
+    prompt: str
+    rule: dict | None = None  # None: only when started
+    provider: str
+    model: str
+    scope: ScopeIO = ScopeIO()
+    priority: str = "normal"
+    budget: dict | None = None
+
+
+class AgentEdit(BaseModel):
+    title: str | None = None
+    prompt: str | None = None
+    rule: dict | None = None
+    manual: bool | None = None  # true: remove the schedule
+    enabled: bool | None = None
+    scope: ScopeIO | None = None
+    priority: str | None = None
+    budget: dict | None = None
 
 
 class JobOut(BaseModel):
@@ -1757,6 +1826,8 @@ def create_app(
 
     def finish_run(log: RunLog, outcome: str, error: str | None = None) -> None:
         run_store.save(log, outcome, error)
+        if outcome == "paused":  # one part of a background run; the part that ends it is counted
+            return
         used = [s["data"].get("name") for s in log.steps if s["kind"] == "tool"]
         loaded = [s["data"].get("name") for s in log.steps if s["kind"] == "skill"]
         telemetry.run_finished(
@@ -1771,68 +1842,122 @@ def create_app(
             return
         telemetry.crash(exc)
 
-    def build_agent(provider: Provider, model: str, approver) -> Agent:
-        budget = run_settings.get()
+    def build_agent(
+        provider: Provider,
+        model: str,
+        approver,
+        skill_view: SkillRegistry | None = None,
+        budget: dict | None = None,
+    ) -> Agent:
+        settings = run_settings.get()
+        own = budget or {}  # an agent's own limits replace the global ones
         return Agent(
             provider,
             model,
             tools,
-            skills,
+            skill_view or skills,
             PermissionGate(approver),
             max_tokens=limits.resolve(provider.id, model, reported.get((provider.id, model))),
             turn_fn=turn_for(provider.id, model),
             context_tokens=context_limits.resolve(
                 provider.id, model, reported_context.get((provider.id, model))
             ),
-            max_steps=budget.max_steps,
+            max_steps=own.get("max_steps", settings.max_steps),
             memory_prompt=lambda: profile_prompt(memory),
-            max_total_tokens=budget.max_tokens,
-            timeout_s=budget.timeout_s,
+            max_total_tokens=own.get("max_tokens", settings.max_tokens),
+            timeout_s=own.get("timeout_s", settings.timeout_s),
             model_caps=caps_for(provider.id, model),
             integration_issue=integration_issue,
         )
 
-    async def run_scheduled(job, approver) -> RunResult:
-        """One unattended run of a scheduled job, in a conversation the user can open later."""
-        provider = get_provider(job.provider)
+    def scope_for(job: Job) -> Scope:
+        """The job's scope with its own folder filled in; a job from before scopes keeps the old rights."""
+        scope = parse_scope(job.scope, default=LEGACY) if job.scope is not None else LEGACY
+        if job.folder is None:  # made before agents had folders
+            job = scheduler_store.update_job(job.id, folder=folder_name(job.title, job.id))
+        workspace = folders.workspace
+        return replace(scope, home=workspace / "agents" / job.folder if workspace else None)
+
+    async def execute_agent(job: Job, approver, control: RunControl) -> RunResult:
+        """One part of a background run (until it ends or pauses), in a conversation the user can open."""
+        try:
+            provider = registry.get(job.provider)
+        except KeyError:
+            return RunResult(None, "error", error=f"The provider {job.provider!r} no longer exists.")
         if run_settings.get().local_only and not provider.local:
             return RunResult(None, "error", error="Local-only mode is on and this job uses a cloud model.")
-        conv = store.get(store.create().id)
-        store.rename(conv.id, f"Scheduled: {job.title}")
-        messages = [Message(role="user", content=job.prompt)]
-        store.append(conv.id, list(messages))
-        agent = build_agent(provider, job.model, approver)
+        scope = scope_for(job)
+        conv = None
+        if control.conversation_id:
+            try:
+                conv = store.get(control.conversation_id)
+            except UnknownConversation:
+                conv = None  # the user deleted it: start over
+        if conv is None:
+            conv = store.get(store.create().id)
+            store.rename(conv.id, f"{'Scheduled' if job.rule is not None else 'Agent'}: {job.title}")
+            messages = [Message(role="user", content=job.prompt)]
+            store.append(conv.id, list(messages))
+            task = job.prompt
+        else:  # continuing after a pause or a restart; a tool call cut off by a crash gets its result
+            messages = complete_tool_calls(conv.messages)
+            store.append(conv.id, messages[len(conv.messages):])
+            task = f"(continued) {job.prompt}"
+        control.started(conv.id)
+        saved_from = len(messages)
+        agent = build_agent(provider, job.model, approver, skills.restricted(scope.skills), job.budget)
+        agent.should_pause = control.should_pause
         log = RunLog(
-            conv.id, provider.id, job.model, job.prompt, price=price_for(provider, job.model),
+            conv.id, provider.id, job.model, task, price=price_for(provider, job.model),
             secrets=(provider.api_key() or "", search_mod.get_key() or "", *google.secret_values()),
         )
         agent.log = log
         outcome, error = "done", None
         try:
-            async for event in agent.run(messages, set()):
-                if isinstance(event, Finished):
-                    outcome = event.reason
+            with use_scope(scope):
+                async for event in agent.run(messages, set(conv.active_skills)):
+                    if isinstance(event, ToolStarted):
+                        await control.tool_starting(event.name)  # the tool runs once this returns
+                        if control.has_browser:
+                            browser.set_working(True)
+                    elif isinstance(event, Finished):
+                        outcome = event.reason
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
         except Exception as e:
             outcome, error = "error", describe_error(provider, e)
         finally:
-            store.append(conv.id, complete_tool_calls(messages[1:]))
+            store.append(conv.id, complete_tool_calls(messages[saved_from:]))
             store.set_active_skills(conv.id, sorted(agent.active_skills))
             finish_run(log, outcome, error)
-            browser.set_working(False)
+            if control.has_browser:
+                browser.set_working(False)
         reply = next((m.content for m in reversed(messages) if m.role == "assistant" and m.content), "")
         return RunResult(conv.id, outcome, reply, error)
 
-    async def run_approved_action(tool_name: str, arguments: dict) -> str:
+    async def run_approved_action(tool_name: str, arguments: dict, job_id: str) -> str:
         tool = tools.get(tool_name)
         if tool is None or tool.risk_of(arguments).value == "never":
             raise ValueError("That action is not available any more.")
-        return await tool.handler(arguments, RunContext(skills=skills))
+        try:  # in the agent's scope, so a relative path means its own folder, as when it asked
+            scope = scope_for(scheduler_store.get_job(job_id))
+        except KeyError:
+            raise ValueError("The agent that asked for this was deleted.") from None
+        with use_scope(scope):
+            return await tool.handler(arguments, RunContext(skills=skills))
 
-    scheduler = Scheduler(scheduler_store, run_scheduled, run_approved_action)
-    for schedule_tool in schedule_tools(scheduler):
+    agents = AgentManager(scheduler_store, execute_agent)
+    scheduler = Scheduler(scheduler_store, agents.run, run_approved_action)
+    agents.relaunch = scheduler.launch
+    for schedule_tool in schedule_tools(scheduler) + agent_tools(
+        scheduler, agents, lambda: [g.path for g in folders.list() if g.path.resolve() != folders.workspace]
+    ):
         tools.register(schedule_tool)
+    app.state.agents = agents
     if start_scheduler:
         app.router.add_event_handler("startup", scheduler.start)
+        app.router.add_event_handler("startup", agents.recover)
         app.router.add_event_handler("shutdown", scheduler.stop)
 
 
@@ -1847,7 +1972,8 @@ def create_app(
 
     @app.get("/api/scheduler/jobs", dependencies=auth)
     def list_jobs() -> list[JobOut]:
-        return [job_out(j) for j in scheduler.store.list_jobs()]
+        # Agents that only run when started are listed under /api/agents only.
+        return [job_out(j) for j in scheduler.store.list_jobs() if j.rule is not None]
 
     @app.post("/api/scheduler/jobs", dependencies=auth, status_code=201)
     def create_job(body: JobIn) -> JobOut:
@@ -1868,14 +1994,115 @@ def create_app(
     @app.delete("/api/scheduler/jobs/{job_id}", dependencies=auth, status_code=204)
     def delete_job(job_id: str) -> None:
         job_or_404(job_id)
+        agents.cancel_job(job_id)
         scheduler.store.delete_job(job_id)
 
     @app.post("/api/scheduler/jobs/{job_id}/run", dependencies=auth, status_code=202)
     async def run_job_now(job_id: str) -> dict:
-        job_or_404(job_id)
-        # The result arrives as a notification.
-        asyncio.get_running_loop().create_task(scheduler.run_now(job_id))
+        job = job_or_404(job_id)
+        if agents.is_active(job_id):
+            raise HTTPException(status_code=409, detail="It is already running.")
+        scheduler.launch(job)  # the result arrives as a notification
         return {"started": True}
+
+    # -- background agents (a scheduled job is an agent with a schedule) -------------------
+
+    def run_out(run) -> AgentRunOut:
+        return AgentRunOut(**vars(run))
+
+    def agent_out(job: Job) -> AgentOut:
+        scope = scope_for(job)
+        active = scheduler.store.list_runs(job.id, active_only=True, limit=1)
+        return AgentOut(
+            **{k: v for k, v in vars(job).items() if k not in ("scope", "folder")},
+            when=scheduler.describe(job),
+            scope=ScopeIO(**scope.to_json()),
+            scope_text=scope.describe(),
+            legacy=job.scope is None,
+            folder=str(scope.home) if scope.home else None,
+            run=run_out(active[0]) if active else None,
+        )
+
+    def scope_in(body: ScopeIO) -> Scope:
+        try:
+            scope = parse_scope(body.model_dump(), default=NEW_AGENT)
+        except ScopeError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        approved = {g.path.resolve() for g in folders.list() if g.path.resolve() != folders.workspace}
+        for f in scope.folders or ():
+            if Path(f).expanduser().resolve() not in approved:
+                raise HTTPException(status_code=400, detail=f"{f} is not an approved folder.")
+        return scope
+
+    def agent_run_or_404(run_id: str):
+        try:
+            return scheduler.store.get_run(run_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="unknown run") from None
+
+    @app.get("/api/agents", dependencies=auth)
+    def list_agents() -> list[AgentOut]:
+        return [agent_out(j) for j in scheduler.store.list_jobs()]
+
+    @app.post("/api/agents", dependencies=auth, status_code=201)
+    def create_agent(body: AgentIn) -> AgentOut:
+        get_provider(body.provider)
+        scope = scope_in(body.scope)
+        try:
+            job = scheduler.create(
+                body.title, body.prompt, body.rule, body.provider, body.model,
+                scope=scope, priority=body.priority, budget=body.budget, manual=body.rule is None,
+            )
+        except (RuleError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return agent_out(job)
+
+    @app.get("/api/agents/{job_id}", dependencies=auth)
+    def get_agent(job_id: str) -> AgentOut:
+        return agent_out(job_or_404(job_id))
+
+    @app.put("/api/agents/{job_id}", dependencies=auth)
+    def edit_agent(job_id: str, body: AgentEdit) -> AgentOut:
+        job_or_404(job_id)
+        changes = body.model_dump(exclude={"scope"})
+        if body.scope is not None:
+            changes["scope"] = scope_in(body.scope)  # applies from the next run
+        try:
+            return agent_out(scheduler.update(job_id, **changes))
+        except (RuleError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.delete("/api/agents/{job_id}", dependencies=auth, status_code=204)
+    def delete_agent(job_id: str) -> None:
+        delete_job(job_id)
+
+    @app.post("/api/agents/{job_id}/run", dependencies=auth, status_code=202)
+    async def run_agent_now(job_id: str) -> AgentRunOut:
+        job = job_or_404(job_id)
+        if agents.is_active(job_id):
+            raise HTTPException(status_code=409, detail="It is already running.")
+        run = scheduler.store.add_run(job.id)
+        scheduler.launch(job, run)
+        return run_out(run)
+
+    @app.get("/api/agent-runs", dependencies=auth)
+    def list_agent_runs(
+        agent_id: str | None = None, active: bool = False, limit: int = 50
+    ) -> list[AgentRunOut]:
+        return [run_out(r) for r in scheduler.store.list_runs(agent_id, active, max(1, min(limit, 200)))]
+
+    @app.post("/api/agent-runs/{run_id}/{action}", dependencies=auth)
+    def control_agent_run(run_id: str, action: str) -> AgentRunOut:
+        if action not in ("pause", "resume", "cancel"):
+            raise HTTPException(status_code=404, detail="unknown action")
+        agent_run_or_404(run_id)
+        try:
+            run = getattr(agents, action)(run_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="The agent was deleted.") from None
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return run_out(run)
 
     @app.get("/api/scheduler/pending", dependencies=auth)
     def list_pending() -> list[PendingOut]:
@@ -1905,19 +2132,45 @@ def create_app(
     def read_events(body: EventsRead) -> None:
         scheduler.store.mark_read(body.ids)
 
-    @app.websocket("/ws/chat")
-    async def chat(ws: WebSocket) -> None:
+    async def accept_socket(ws: WebSocket) -> bool:
         # A browser always names the page a socket is opened from; a page that is not one of ours is refused
         # even with the right token (a program that sends no Origin is not a web page, the token covers it).
         origin = ws.headers.get("origin")
         if origin is not None and origin not in origins:
             await ws.close(code=4403)
-            return
+            return False
         # Browsers can't set headers on WebSockets, so the token comes as a query param.
         if not same_secret(ws.query_params.get("token", ""), token):
             await ws.close(code=4401)
-            return
+            return False
         await ws.accept()
+        return True
+
+    @app.websocket("/ws/events")
+    async def events(ws: WebSocket) -> None:
+        """Background agents as they go: `run` (a run's new state), `tool` (a tool it starts, name only)."""
+        if not await accept_socket(ws):
+            return
+        queue = agents.subscribe()
+
+        async def forward() -> None:
+            while True:
+                await ws.send_json(await queue.get())
+
+        sender = asyncio.create_task(forward())
+        try:
+            while True:
+                await ws.receive_text()  # nothing is expected; this notices the app going away
+        except WebSocketDisconnect:
+            pass
+        finally:
+            agents.unsubscribe(queue)
+            sender.cancel()
+
+    @app.websocket("/ws/chat")
+    async def chat(ws: WebSocket) -> None:
+        if not await accept_socket(ws):
+            return
         pending: dict[str, asyncio.Future[bool]] = {}  # approval id -> the user's answer
         run: asyncio.Task | None = None
 

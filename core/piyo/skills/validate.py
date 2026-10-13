@@ -26,6 +26,9 @@ MIN_SETUP_CHARS = 80
 # so a new tool cannot be forgotten here.
 KNOWN_TOOLS = frozenset(
     {
+        "agent.cancel",
+        "agent.create",
+        "agent.list",
         "browser.click",
         "browser.open",
         "browser.read",

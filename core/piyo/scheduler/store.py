@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 import uuid
@@ -21,20 +22,51 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def folder_name(title: str, job_id: str) -> str:
+    """A readable, safe folder name that stays the same when the title changes later."""
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40].strip("-")
+    return f"{slug or 'agent'}-{job_id[:6]}"
+
+
 @dataclass
 class Job:
+    """A background agent: what to do, with which model, when (`rule`; None = only when started by hand), and
+    within which limits (`scope`, `priority`, `budget`). Rows from before agents existed have no scope and
+    keep what scheduled runs could always do (`piyo.safety.scope.LEGACY`)."""
+
     id: str
     title: str
     prompt: str
-    rule: dict
+    rule: dict | None
     provider: str
     model: str
     enabled: bool
-    next_run: str | None  # ISO UTC; None when finished (a one-time job that ran) or disabled
+    next_run: str | None  # ISO UTC; None when finished (a one-time job that ran), disabled or manual
     last_run: str | None
-    last_status: str | None  # done | error | waiting | missed
+    last_status: str | None  # done | error | waiting | missed | paused | cancelled
     last_conversation_id: str | None
     created_at: str
+    scope: dict | None = None  # `Scope.to_json()`; None = legacy
+    priority: str = "normal"  # low | normal | high
+    budget: dict | None = None  # max_steps / max_tokens / timeout_s overriding the global run settings
+    folder: str | None = None  # the agent's own folder name under <workspace>/agents/
+
+
+@dataclass
+class AgentRun:
+    """One run of an agent, persisted so a restart can pick it up again."""
+
+    id: str
+    job_id: str
+    state: str  # queued | running | waiting | paused | done | needs-you | failed | cancelled
+    reason: str | None  # why it is waiting or paused, or the error
+    conversation_id: str | None
+    held: int  # actions held for the user's approval
+    created_at: str
+    updated_at: str
+
+
+ACTIVE_STATES = ("queued", "running", "waiting", "paused")
 
 
 @dataclass
@@ -80,7 +112,19 @@ CREATE TABLE IF NOT EXISTS events (
     id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
     job_id TEXT, conversation_id TEXT, created_at TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY, job_id TEXT NOT NULL, state TEXT NOT NULL, reason TEXT, conversation_id TEXT,
+    held INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
 """
+# Agent columns added to `jobs` after the first release (added on open when missing).
+JOB_COLUMNS = {
+    "scope": "TEXT",
+    "priority": "TEXT NOT NULL DEFAULT 'normal'",
+    "budget": "TEXT",
+    "folder": "TEXT",
+}
+MAX_RUNS_KEPT = 500
 
 
 class SchedulerStore:
@@ -97,7 +141,12 @@ class SchedulerStore:
         db = sqlite3.connect(self.path)
         db.row_factory = sqlite3.Row
         if not self._ready:
-            db.executescript(SCHEMA)
+            with db:
+                db.executescript(SCHEMA)
+                have = {r["name"] for r in db.execute("PRAGMA table_info(jobs)")}
+                for name, kind in JOB_COLUMNS.items():
+                    if name not in have:
+                        db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
             self._ready = True
         return db
 
@@ -106,44 +155,39 @@ class SchedulerStore:
     @staticmethod
     def _job(row: sqlite3.Row) -> Job:
         d = dict(row)
-        return Job(**{**d, "rule": json.loads(d["rule"]), "enabled": bool(d["enabled"])})
+        decoded = {k: json.loads(d[k]) if d[k] is not None else None for k in ("rule", "scope", "budget")}
+        return Job(**{**d, **decoded, "enabled": bool(d["enabled"])})
 
     def add_job(
-        self, title: str, prompt: str, rule: dict, provider: str, model: str, next_run: str | None
+        self,
+        title: str,
+        prompt: str,
+        rule: dict | None,
+        provider: str,
+        model: str,
+        next_run: str | None,
+        scope: dict | None = None,
+        priority: str = "normal",
+        budget: dict | None = None,
     ) -> Job:
         with self._lock, closing(self._connect()) as db, db:
             if db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] >= MAX_JOBS:
-                raise ValueError(f"Too many scheduled jobs (limit {MAX_JOBS}). Delete some first.")
+                raise ValueError(f"Too many agents and scheduled jobs (limit {MAX_JOBS}). Delete some first.")
+            job_id = uuid.uuid4().hex[:12]
             job = Job(
-                uuid.uuid4().hex[:12],
-                title,
-                prompt,
-                rule,
-                provider,
-                model,
-                True,
-                next_run,
-                None,
-                None,
-                None,
-                _now(),
+                job_id, title, prompt, rule, provider, model, True, next_run, None, None, None, _now(),
+                scope, priority, budget, folder_name(title, job_id),
             )
+            values = {
+                **vars(job),
+                "rule": json.dumps(rule),  # "null" for a manual agent (the column is NOT NULL)
+                "scope": json.dumps(scope) if scope is not None else None,
+                "budget": json.dumps(budget) if budget is not None else None,
+                "enabled": 1,
+            }
             db.execute(
-                "INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    job.id,
-                    title,
-                    prompt,
-                    json.dumps(rule),
-                    provider,
-                    model,
-                    1,
-                    next_run,
-                    None,
-                    None,
-                    None,
-                    job.created_at,
-                ),
+                f"INSERT INTO jobs ({', '.join(values)}) VALUES ({', '.join('?' * len(values))})",
+                list(values.values()),
             )
             return job
 
@@ -171,9 +215,14 @@ class SchedulerStore:
         allowed = {f.name for f in fields(Job)} - {"id", "created_at"}
         if bad := set(changes) - allowed:
             raise ValueError(f"cannot change {sorted(bad)}")
-        values = {
-            k: (json.dumps(v) if k == "rule" else int(v) if k == "enabled" else v) for k, v in changes.items()
-        }
+        def column(k: str, v):
+            if k == "rule":
+                return json.dumps(v)
+            if k in ("scope", "budget"):
+                return json.dumps(v) if v is not None else None
+            return int(v) if k == "enabled" else v
+
+        values = {k: column(k, v) for k, v in changes.items()}
         with self._lock, closing(self._connect()) as db, db:
             if values:
                 sets = ", ".join(f"{k} = ?" for k in values)
@@ -186,6 +235,52 @@ class SchedulerStore:
             db.execute(
                 "UPDATE pending SET status = 'expired' WHERE job_id = ? AND status = 'pending'", (job_id,)
             )
+
+    # -- agent runs ------------------------------------------------------------------------
+
+    def add_run(self, job_id: str, state: str = "queued") -> AgentRun:
+        stamp = _now()
+        run = AgentRun(uuid.uuid4().hex[:12], job_id, state, None, None, 0, stamp, stamp)
+        with self._lock, closing(self._connect()) as db, db:
+            db.execute("INSERT INTO agent_runs VALUES (?,?,?,?,?,?,?,?)", tuple(vars(run).values()))
+            db.execute(
+                "DELETE FROM agent_runs WHERE id NOT IN "
+                "(SELECT id FROM agent_runs ORDER BY created_at DESC, id LIMIT ?)",
+                (MAX_RUNS_KEPT,),
+            )
+        return run
+
+    def get_run(self, run_id: str) -> AgentRun:
+        with closing(self._connect()) as db:
+            row = db.execute("SELECT * FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        return AgentRun(**dict(row))
+
+    def update_run(self, run_id: str, **changes) -> AgentRun:
+        allowed = {"state", "reason", "conversation_id", "held"}
+        if bad := set(changes) - allowed:
+            raise ValueError(f"cannot change {sorted(bad)}")
+        changes["updated_at"] = _now()
+        with self._lock, closing(self._connect()) as db, db:
+            sets = ", ".join(f"{k} = ?" for k in changes)
+            db.execute(f"UPDATE agent_runs SET {sets} WHERE id = ?", [*changes.values(), run_id])
+        return self.get_run(run_id)
+
+    def list_runs(
+        self, job_id: str | None = None, active_only: bool = False, limit: int = 50
+    ) -> list[AgentRun]:
+        where, params = [], []
+        if job_id is not None:
+            where.append("job_id = ?")
+            params.append(job_id)
+        if active_only:
+            where.append(f"state IN ({', '.join('?' * len(ACTIVE_STATES))})")
+            params.extend(ACTIVE_STATES)
+        sql = "SELECT * FROM agent_runs" + (f" WHERE {' AND '.join(where)}" if where else "")
+        with closing(self._connect()) as db:
+            rows = db.execute(sql + " ORDER BY created_at DESC, id LIMIT ?", [*params, limit])
+            return [AgentRun(**dict(r)) for r in rows]
 
     # -- held actions ----------------------------------------------------------------------
 

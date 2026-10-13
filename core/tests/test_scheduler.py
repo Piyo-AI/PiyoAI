@@ -100,7 +100,7 @@ def parts(tmp_path):
     held_request = ApprovalRequest("mail.send", {"to": "a@b.c"}, Risk.CONFIRM, "Send mail to a@b.c")
     behaviour = {"fail": None, "hold": False}
 
-    async def runner(job, approver):
+    async def runner(job, approver, run=None):
         runs.append(job.title)
         if behaviour["fail"]:
             raise RuntimeError(behaviour["fail"])
@@ -111,7 +111,7 @@ def parts(tmp_path):
 
     executed = []
 
-    async def executor(tool, args):
+    async def executor(tool, args, job_id=None):
         executed.append((tool, args))
         return "sent"
 
@@ -223,7 +223,7 @@ async def test_declined_and_expired_actions_never_run(parts):
 async def test_a_held_action_that_fails_is_reported(parts):
     scheduler, store, clock, _, behaviour, _ = parts
 
-    async def broken(tool, args):
+    async def broken(tool, args, job_id=None):
         raise RuntimeError("mailbox unavailable")
 
     scheduler._executor = broken

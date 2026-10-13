@@ -60,7 +60,7 @@ class ToolFinished:
 
 @dataclass
 class Finished:
-    reason: str  # "done" | "step_limit" | "token_limit" | "timeout" | "truncated"
+    reason: str  # "done" | "step_limit" | "token_limit" | "timeout" | "truncated" | "paused"
     active_skills: list[str] = field(default_factory=list)
 
 
@@ -89,7 +89,9 @@ class Agent:
         timeout_s: float | None = None,  # budget: wall clock, minus time waiting for approvals
         integration_issue: Callable[[str], str | None] | None = None,  # see RunContext
         memory_prompt: Callable[[], str] | None = None,  # what the user's memory adds to the system prompt
+        should_pause: Callable[[], bool] | None = None,  # asked between model turns (background agents)
     ) -> None:
+        self.should_pause = should_pause
         self.memory_prompt = memory_prompt
         self.integration_issue = integration_issue
         self.model_caps = model_caps
@@ -135,6 +137,9 @@ class Agent:
         self._failures, self._declined = {}, set()
         for _ in range(self.max_steps):
             # Checked between model turns, so a tool call is never left without its result.
+            if self.should_pause and self.should_pause():
+                yield Finished("paused", sorted(ctx.active_skills))  # resumed later from the saved history
+                return
             if self.max_total_tokens and self.tokens_used >= self.max_total_tokens:
                 yield Finished("token_limit", sorted(ctx.active_skills))
                 return

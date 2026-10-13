@@ -6,6 +6,8 @@ through the `load_skill` tool.
 
 from __future__ import annotations
 
+import copy
+from collections.abc import Iterable
 from pathlib import Path
 
 from piyo.config import skills_dir
@@ -60,6 +62,14 @@ class SkillRegistry:
     def get(self, name: str) -> Skill | None:
         skill = self._skills.get(name)
         return None if skill is None or name in self.disabled else skill
+
+    def restricted(self, allowed: Iterable[str] | None) -> SkillRegistry:
+        """A view for one agent run: skills outside `allowed` look disabled (None keeps every enabled one)."""
+        if allowed is None:
+            return self
+        view = copy.copy(self)  # shares the loaded skills; only the disabled set is its own
+        view.disabled = self.disabled | (set(self._skills) - set(allowed))
+        return view
 
     def list(self) -> list[Skill]:
         return sorted(self._skills.values(), key=lambda s: s.manifest.name)
