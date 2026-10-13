@@ -124,6 +124,8 @@ _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 _TEXT_SUFFIXES = {".md", ".txt", ".json", ".csv", ".yaml", ".yml", ".html", ".css", *_SCRIPT_SUFFIXES}
 _SEMVER = re.compile(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
 _SECRET_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
+# A tool of an MCP server the user adds themselves: one tool, or all of that server's tools.
+MCP_TOOL = re.compile(r"mcp\.([a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?)\.(\*|[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*)")
 _BINARY_MAGIC = (b"MZ\x90\x00", b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"PK\x03\x04")
 
 # Things that look like a credential. Deliberately narrow: a false alarm blocks an honest author.
@@ -276,7 +278,12 @@ def _manifest(skill: Skill, report: Report) -> None:
         report.errors.append(f"SKILL.md: version {m.version!r} must look like 1.2.3")
     req = m.requires
     for tool in req.tools:
-        if tool not in KNOWN_TOOLS:
+        if MCP_TOOL.fullmatch(tool):
+            report.warnings.append(
+                f"reviewer: needs the MCP server {tool.split('.')[1]!r}, which the user adds; does SETUP.md "
+                "say how?"
+            )
+        elif tool not in KNOWN_TOOLS:
             report.errors.append(f"requires.tools: {tool!r} is not a tool Piyo has")
     for integration in req.integrations:
         if integration not in KNOWN_INTEGRATIONS:

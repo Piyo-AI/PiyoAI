@@ -16,6 +16,8 @@ export function describePermission(label: string): string {
       return `Run its own script ${value}`;
     case "runtime":
       return `Run code with ${value}`;
+    case "mcp":
+      return `Use tools of the MCP server "${value}" (you add the server yourself in Settings > MCP servers)`;
     default:
       return label;
   }

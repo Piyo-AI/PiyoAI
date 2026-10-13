@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 # Tools whose output is text somebody else wrote. A new tool that returns outside text goes here
 # (tests/test_taint.py fails for a registered tool nobody has classified).
-UNTRUSTED_PREFIXES = ("web.", "browser.", "gmail.", "calendar.")
+UNTRUSTED_PREFIXES = ("web.", "browser.", "gmail.", "calendar.", "mcp.")  # mcp: a server reads from anywhere
 UNTRUSTED_TOOLS = {"files.read", "files.list", "skill.run_script"}
 
 

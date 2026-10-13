@@ -35,7 +35,22 @@ async def _load_skill(args: dict, ctx: RunContext) -> str:
     needs = skill.manifest.requires.tools
     if needs:
         parts += ["", "Tools unlocked by this skill: " + ", ".join(needs)]
+    if missing := _missing_servers(needs, ctx):
+        parts += [
+            "",
+            "Not available: this skill needs the MCP server(s) " + ", ".join(missing) + ", which the user "
+            "has not added or whose tools they have not approved. Tell the user to add it in Settings > "
+            "MCP servers.",
+        ]
     return "\n".join(parts)
+
+
+def _missing_servers(needs: list[str], ctx: RunContext) -> list[str]:
+    if ctx.tool_names is None:
+        return []
+    have = ctx.tool_names()
+    servers = sorted({t.split(".")[1] for t in needs if t.startswith("mcp.") and t.count(".") == 2})
+    return [s for s in servers if not any(n.startswith(f"mcp.{s}.") for n in have)]
 
 
 async def _current_time(args: dict, ctx: RunContext) -> str:

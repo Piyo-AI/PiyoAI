@@ -75,6 +75,40 @@ export interface BrowserStatus {
   url: string;
 }
 
+export interface McpServerIn {
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>; // plain settings
+  secrets: string[]; // names; values are set one by one and go to the keychain
+}
+
+export interface McpTool {
+  name: string; // the server's name for it
+  tool: string; // Piyo's name, for a skill's requires.tools
+  description: string;
+  input_schema: Record<string, unknown>;
+  hash: string;
+  status: "approved" | "new" | "changed";
+  auto: boolean;
+  read_only: boolean; // the server's own hints, shown as such
+  destructive: boolean;
+}
+
+export interface McpServer {
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  secrets: { name: string; set: boolean }[]; // values are never sent back
+  enabled: boolean;
+  always_on: boolean;
+  state: "stopped" | "starting" | "running" | "failed";
+  error: string | null;
+  tools: McpTool[];
+  log: string[];
+}
+
 export interface BrowserRules {
   allow: string[];
   deny: string[];
@@ -746,6 +780,20 @@ export const api = {
   runSettings: () => request<RunSettings>("GET", "/api/run-settings"),
   setRunSettings: (changes: Partial<RunSettings>) => request<RunSettings>("PUT", "/api/run-settings", changes),
   models: (id: string) => request<ModelInfo[]>("GET", `/api/providers/${id}/models`),
+  mcpServers: () => request<McpServer[]>("GET", "/api/mcp/servers"),
+  addMcpServer: (server: McpServerIn) => request<McpServer>("POST", "/api/mcp/servers", server),
+  editMcpServer: (name: string, changes: Partial<McpServerIn> & { enabled?: boolean; always_on?: boolean }) =>
+    request<McpServer>("PUT", `/api/mcp/servers/${encodeURIComponent(name)}`, changes),
+  removeMcpServer: (name: string) => request<void>("DELETE", `/api/mcp/servers/${encodeURIComponent(name)}`),
+  testMcpServer: (name: string) => request<McpServer>("POST", `/api/mcp/servers/${encodeURIComponent(name)}/test`),
+  approveMcpTools: (name: string, tools: Record<string, string>) =>
+    request<McpServer>("POST", `/api/mcp/servers/${encodeURIComponent(name)}/approve`, { tools }),
+  setMcpToolAuto: (name: string, tool: string, auto: boolean) =>
+    request<McpServer>("PUT", `/api/mcp/servers/${encodeURIComponent(name)}/tools/${encodeURIComponent(tool)}`, { auto }),
+  setMcpSecret: (name: string, secret: string, value: string) =>
+    request<void>("PUT", `/api/mcp/servers/${encodeURIComponent(name)}/secrets/${encodeURIComponent(secret)}`, { value }),
+  deleteMcpSecret: (name: string, secret: string) =>
+    request<void>("DELETE", `/api/mcp/servers/${encodeURIComponent(name)}/secrets/${encodeURIComponent(secret)}`),
 };
 
 /** One chat WebSocket; reconnects on demand. */

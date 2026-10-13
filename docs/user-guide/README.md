@@ -9,6 +9,7 @@ tracking a parcel. It asks before it sends, buys, deletes or submits anything.
 | [Install](install.md) | Download Piyo, get past the first-launch warnings, update it, remove it |
 | [Models and providers](providers.md) | Connect a model: an online service or one running on your computer |
 | [Skills](skills.md) | Use, install, write and remove skills |
+| [MCP servers](mcp.md) | Give Piyo more tools from MCP servers, and review what they can do |
 | [Privacy](privacy.md) | See what stays on your computer and what leaves it |
 | [Troubleshooting](troubleshooting.md) | Fix the problems people hit most often |
 

@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiStyle, FolderEntry, inTauri, pickFolder, Provider, RunSettings, SkillInfo } from "./api";
 import { Badge } from "./Badge";
 import { BrowserSettings } from "./BrowserSettings";
+import { McpSettings } from "./McpSettings";
 import { MemoryPage } from "./MemoryPage";
 import { PrivacyPage } from "./PrivacyPage";
 import { setSuggestionsEnabled, useSkillSuggestions } from "./skillSuggestions";
@@ -30,7 +31,7 @@ interface Props {
   refreshKey?: unknown;
 }
 
-export type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "browser" | "memory" | "scheduled" | "limits" | "updates" | "privacy";
+export type Page = "providers" | "add-provider" | "web-search" | "folders" | "skills" | "mcp" | "browser" | "memory" | "scheduled" | "limits" | "updates" | "privacy";
 
 export function Settings({
   providers,
@@ -106,6 +107,9 @@ export function Settings({
             <button className={`nav-item ${page === "skills" ? "active" : ""}`} onClick={() => go("skills")}>
               Skills
             </button>
+            <button className={`nav-item ${page === "mcp" ? "active" : ""}`} onClick={() => go("mcp")}>
+              MCP servers
+            </button>
             <button className={`nav-item ${page === "browser" ? "active" : ""}`} onClick={() => go("browser")}>
               Browser
             </button>
@@ -162,6 +166,7 @@ export function Settings({
                 }}
               />
             )}
+            {page === "mcp" && <McpSettings />}
             {page === "browser" && <BrowserSettings />}
             {page === "memory" && <MemoryPage />}
             {page === "updates" && <UpdatesPage update={update} busy={busy} />}

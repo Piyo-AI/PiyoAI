@@ -37,6 +37,7 @@ class RunContext:
     # Says why an integration a skill needs isn't usable (not connected, expired), None when it is.
     integration_issue: Callable[[str], str | None] | None = None
 
+    tool_names: Callable[[], set[str]] | None = None  # every registered tool now (MCP tools come and go)
     provider_id: str | None = None  # which model this run uses, so a schedule can use the same
     model: str | None = None
 
@@ -86,6 +87,14 @@ class RunContext:
             if skill:
                 granted.update(skill.manifest.requires.tools)
         return granted
+
+
+def is_granted(name: str, granted: set[str]) -> bool:
+    """`granted` holds tool names and, for MCP servers, `mcp.<server>.*` for all of one server's tools."""
+    if name in granted:
+        return True
+    parts = name.split(".")
+    return len(parts) == 3 and parts[0] == "mcp" and f"mcp.{parts[1]}.*" in granted
 
 
 Handler = Callable[[dict, RunContext], Awaitable[str]]
@@ -160,6 +169,10 @@ class ToolRegistry:
             raise ValueError(f"tool already registered: {tool.name}")
         self._tools[tool.name] = tool
 
+    def unregister(self, name: str) -> None:
+        """For tools that come and go with the user's settings (MCP servers)."""
+        self._tools.pop(name, None)
+
     def get(self, name: str) -> Tool | None:
         """Look up by internal or wire name."""
         return self._tools.get(name) or self._tools.get(name.replace("__", "."))
@@ -168,4 +181,4 @@ class ToolRegistry:
         return set(self._tools)
 
     def available(self, granted: set[str]) -> list[Tool]:
-        return [t for t in self._tools.values() if t.core or t.name in granted]
+        return [t for t in self._tools.values() if t.core or is_granted(t.name, granted)]

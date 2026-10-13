@@ -1686,3 +1686,39 @@ pre.telemetry-events {
   background: var(--user);
   color: var(--text);
 }
+
+/* Settings > MCP servers */
+.warning-text {
+  color: var(--danger, #b45309);
+}
+
+.mcp-review {
+  border: 1px solid var(--danger, #b45309);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+
+.mcp-review ul,
+.mcp-tool + .mcp-tool {
+  margin-top: 6px;
+}
+
+.mcp-review ul,
+.mcp-server details ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.mcp-tool .row-head {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mcp-log {
+  max-height: 200px;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

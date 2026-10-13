@@ -20,6 +20,8 @@ binaries = []
 hiddenimports = []
 
 datas += collect_data_files("tzdata")  # Windows has no system time zone database
+# The MCP SDK checks tool output schemas with jsonschema, which reads its meta-schemas from package data.
+datas += collect_data_files("jsonschema_specifications")
 # Imported by name at run time, so the import scan cannot see them.
 for package in ("uvicorn", "keyring.backends", "anyio", "send2trash"):
     hiddenimports += collect_submodules(package)

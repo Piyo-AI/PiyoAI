@@ -96,8 +96,9 @@ Unknown keys are ignored, so skills written for other tools in the Agent Skills 
 | `weather.forecast` | Weather for a place | no |
 | `skill.run_script` | Run the skill's own scripts | yes for a skill the user installed |
 | `memory.*`, `schedule.*` | Remember facts, set reminders. Always available to Piyo; listing them in `requires.tools` is allowed but not needed | varies |
+| `mcp.<server>.<tool>`, `mcp.<server>.*` | One tool, or every tool, of an MCP server the user adds in Settings > MCP servers. Your skill cannot add the server: say in `SETUP.md` what to add (command, arguments, secrets) and under which name | yes, unless the user ticked "Run without asking" |
 
-A skill that names a tool Piyo does not have is rejected. The user sees your list on install and approves it;
+A skill that names a tool Piyo does not have is rejected (MCP tools are checked by their form, since the server is the user's). The user sees your list on install and approves it;
 an update that adds a tool asks again.
 
 ### Writing the instructions

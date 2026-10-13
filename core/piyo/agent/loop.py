@@ -30,6 +30,7 @@ from piyo.safety.untrusted import shorten
 from piyo.skills import SkillRegistry
 from piyo.store import RunLog
 from piyo.tools import RunContext, ToolRegistry
+from piyo.tools.base import is_granted
 
 MAX_RESULT_CHARS = 20_000
 MAX_IDENTICAL_FAILURES = 3  # the same call with the same arguments may fail this often per run
@@ -126,6 +127,7 @@ class Agent:
             integration_issue=self.integration_issue,
             provider_id=self.provider.id,
             model=self.model,
+            tool_names=self.tools.names,
         )
         self.active_skills = ctx.active_skills
         ctx.user_text = "\n".join(m.content for m in messages if m.role == "user")
@@ -285,7 +287,7 @@ class Agent:
         """(output, is_error, declined_by_user)"""
         tool = self.tools.get(call.name)
         # Unknown and not-granted look the same to the model: it can only use what it was shown.
-        if tool is None or not (tool.core or tool.name in ctx.granted_tools()):
+        if tool is None or not (tool.core or is_granted(tool.name, ctx.granted_tools())):
             return f"Unknown tool {call.name!r}. Load the skill that provides it first.", True, False
         if call.parse_error:
             return f"Invalid arguments for {call.name}: {call.parse_error}.", True, False

@@ -34,7 +34,8 @@ class InstallError(ValueError):
 def permissions_of(skill: Skill) -> list[str]:
     """Every capability the skill asks for, as stable labels the review screen shows."""
     req = skill.manifest.requires
-    labels = [f"tool:{t}" for t in req.tools]
+    # An MCP tool is reached through a server the user adds, so the label names the server.
+    labels = [f"mcp:{t.split('.')[1]}" if t.startswith("mcp.") else f"tool:{t}" for t in req.tools]
     labels += [f"integration:{i}" for i in req.integrations]
     labels += [f"secret:{s}" for s in req.secrets]
     labels += [f"script:{s}" for s in skill.scripts]

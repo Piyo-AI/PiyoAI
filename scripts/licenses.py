@@ -42,6 +42,10 @@ ALLOWED = {
 # Packages whose metadata is free text or wrong, checked by hand: name -> (licence id, why).
 REVIEWED = {
     "jaraco-classes": ("MIT", "no licence field; classifier says MIT License"),
+    # Windows only, for the MCP SDK's process handling (win32api, win32con, win32job, pywintypes). Those parts and
+    # win32com are under Mark Hammond's BSD-3-Clause-style licence (win32/License.txt); its adodbapi part is
+    # LGPL-2.1 and is not in the packaged core (checked in core/dist, 2026-10-13). Check again when it updates.
+    "pywin32": ("BSD-3-Clause", "metadata says PSF; the shipped parts are BSD-3-Clause, adodbapi is not shipped"),
 }
 CLASSIFIERS = {
     "MIT License": "MIT",

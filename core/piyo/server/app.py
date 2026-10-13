@@ -35,6 +35,9 @@ from piyo.config.skill_state import SkillState
 from piyo.config.tool_modes import ToolModes
 from piyo.integrations.google import SCOPE_GROUPS, GoogleAuth, GoogleError
 from piyo.integrations.google.check import check_connection
+from piyo.integrations.mcp import McpConfigError, McpError, McpManager, McpServer, McpServers
+from piyo.integrations.mcp.config import secret_key as mcp_secret_key
+from piyo.integrations.mcp.tools import ALWAYS_ON_MAX_TOOLS, tool_names
 from piyo.models import (
     MissingApiKey,
     ModelInfo,
@@ -629,6 +632,62 @@ class ResourceLimitsOut(BaseModel):
     usage: dict[str, PoolUsage]  # pools in use since the core started
 
 
+class McpServerIn(BaseModel):
+    name: str
+    command: str
+    args: list[str] = []
+    env: dict[str, str] = {}  # plain settings
+    secrets: list[str] = []  # names only; values go through PUT .../secrets/{name}
+
+
+class McpServerEdit(BaseModel):
+    command: str | None = None
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+    secrets: list[str] | None = None
+    enabled: bool | None = None
+    always_on: bool | None = None
+
+
+class McpToolOut(BaseModel):
+    name: str  # the server's name for it
+    tool: str  # Piyo's name, for a skill's requires.tools
+    description: str
+    input_schema: dict
+    hash: str
+    status: str  # approved | new | changed
+    auto: bool
+    read_only: bool  # the server's hints, shown as they are; they never lower the risk
+    destructive: bool
+
+
+class McpSecretOut(BaseModel):
+    name: str
+    set: bool
+
+
+class McpServerOut(BaseModel):
+    name: str
+    command: str
+    args: list[str]
+    env: dict[str, str]
+    secrets: list[McpSecretOut]
+    enabled: bool
+    always_on: bool
+    state: str  # stopped | starting | running | failed
+    error: str | None
+    tools: list[McpToolOut]
+    log: list[str]  # the end of the server's stderr
+
+
+class McpApproveIn(BaseModel):
+    tools: dict[str, str]  # tool name -> the hash the user was shown
+
+
+class McpToolEdit(BaseModel):
+    auto: bool
+
+
 class PriceIn(BaseModel):
     provider: str
     model: str
@@ -867,13 +926,17 @@ def create_app(
         + weather_tools()
         + ui_tools()
     )
+    mcp_manager = McpManager(McpServers(), tools, get_secret, helpers.ensure, data_dir() / "mcp")
+    mcp_manager.sync()  # approved MCP tools are offered from the saved pins; servers start on first use
     scheduler_store = scheduler_store or SchedulerStore()
     app = FastAPI(title="Piyo Core", version=__version__)
+    app.state.mcp = mcp_manager
     origins = allowed_origins()
     app.router.add_event_handler("shutdown", browser.close)
     app.router.add_event_handler("shutdown", installer.close)
     app.router.add_event_handler("shutdown", ollama.close)
     app.router.add_event_handler("shutdown", embedder.close)
+    app.router.add_event_handler("shutdown", mcp_manager.stop_all)
     app.router.add_event_handler("startup", memory.reindex_later)  # a no-op unless semantic search is on
     app.state.tools = tools
 
@@ -1824,6 +1887,139 @@ def create_app(
     def delete_skill_secret(name: str, secret: str) -> None:
         declared_secret(name, secret)
         delete_secret(secret_name(name, secret))
+
+    # -- MCP servers (Phase 7): only the user adds or changes one, here --------------------
+
+    def mcp_out(server: McpServer) -> McpServerOut:
+        client = mcp_manager.clients.get(server.name)
+        listed = {**server.tools, **server.changed}
+        names = tool_names(server.name, sorted(listed))
+        tools_out = []
+        for name, tool in sorted(listed.items()):
+            status = "approved"
+            if name in server.changed:
+                status = "changed" if name in server.tools else "new"
+            tools_out.append(
+                McpToolOut(
+                    name=name, tool=names[name], description=tool.description, input_schema=tool.input_schema,
+                    hash=tool.hash, status=status, auto=tool.auto and status == "approved",
+                    read_only=tool.read_only, destructive=tool.destructive,
+                )
+            )
+        return McpServerOut(
+            name=server.name, command=server.command, args=server.args, env=server.env,
+            secrets=[
+                McpSecretOut(name=n, set=bool(get_secret(mcp_secret_key(server.name, n))))
+                for n in server.secrets
+            ],
+            enabled=server.enabled, always_on=server.always_on,
+            state=client.state if client else "stopped", error=client.error if client else None,
+            tools=tools_out, log=client.log_tail() if client else [],
+        )
+
+    def mcp_or_404(name: str) -> McpServer:
+        try:
+            return mcp_manager.store.get(name)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="unknown MCP server") from None
+
+    @app.get("/api/mcp/servers", dependencies=auth)
+    def list_mcp_servers() -> list[McpServerOut]:
+        return [mcp_out(s) for s in mcp_manager.store.list()]
+
+    @app.post("/api/mcp/servers", dependencies=auth, status_code=201)
+    def add_mcp_server(body: McpServerIn) -> McpServerOut:
+        try:
+            server = mcp_manager.store.add(McpServer(**body.model_dump()))
+        except McpConfigError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return mcp_out(server)
+
+    @app.put("/api/mcp/servers/{name}", dependencies=auth)
+    async def edit_mcp_server(name: str, body: McpServerEdit) -> McpServerOut:
+        server = mcp_or_404(name)
+        changes = body.model_dump(exclude_none=True)
+        program = (server.command, server.args, server.env, server.secrets)
+        for key, value in changes.items():
+            setattr(server, key, value)
+        if (server.command, server.args) != program[:2]:
+            server.tools, server.changed = {}, {}  # another program: its tools are reviewed from scratch
+        if server.always_on and len(server.approved()) > ALWAYS_ON_MAX_TOOLS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Always on is for small servers (up to {ALWAYS_ON_MAX_TOOLS} tools); this one has "
+                "more. "
+                "Use a skill that needs it instead.",
+            )
+        try:
+            mcp_manager.store.save(server)
+        except McpConfigError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        for gone in set(program[3]) - set(server.secrets):
+            delete_secret(mcp_secret_key(name, gone))
+        if (server.command, server.args, server.env, server.secrets) != program or not server.enabled:
+            await mcp_manager.stop(name)  # the next use starts it with the new settings
+        mcp_manager.sync(name)
+        return mcp_out(server)
+
+    @app.delete("/api/mcp/servers/{name}", dependencies=auth, status_code=204)
+    async def remove_mcp_server(name: str) -> None:
+        server = mcp_or_404(name)
+        await mcp_manager.forget(name)
+        for secret in server.secrets:
+            delete_secret(mcp_secret_key(name, secret))
+        mcp_manager.store.remove(name)
+
+    @app.post("/api/mcp/servers/{name}/test", dependencies=auth)
+    async def test_mcp_server(name: str) -> McpServerOut:
+        """Start it, list its tools for review, stop it again (it starts for real on first use)."""
+        mcp_or_404(name)
+        was_running = mcp_manager.client(name).running  # a run is using it: leave it on
+        try:
+            server = await mcp_manager.discover(name)
+        except McpError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from None
+        finally:
+            if not was_running:
+                await mcp_manager.stop(name)
+        return mcp_out(server)
+
+    @app.post("/api/mcp/servers/{name}/approve", dependencies=auth)
+    def approve_mcp_tools(name: str, body: McpApproveIn) -> McpServerOut:
+        mcp_or_404(name)
+        try:
+            return mcp_out(mcp_manager.approve(name, body.tools))
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from None
+
+    @app.put("/api/mcp/servers/{name}/tools/{tool}", dependencies=auth)
+    def set_mcp_tool(name: str, tool: str, body: McpToolEdit) -> McpServerOut:
+        server = mcp_or_404(name)
+        found = server.tools.get(tool)
+        if found is None or tool in server.changed:
+            raise HTTPException(status_code=404, detail="That tool is not approved.")
+        if body.auto and found.destructive:
+            detail = "The server says this tool destroys things; it always asks."
+            raise HTTPException(status_code=400, detail=detail)
+        found.auto = body.auto
+        mcp_manager.store.save(server)
+        return mcp_out(server)
+
+    @app.put("/api/mcp/servers/{name}/secrets/{secret}", dependencies=auth, status_code=204)
+    async def set_mcp_secret(name: str, secret: str, body: SkillSecretIn) -> None:
+        if secret not in mcp_or_404(name).secrets:
+            raise HTTPException(status_code=404, detail="The server has no secret with that name.")
+        if not body.value.strip():
+            raise HTTPException(status_code=400, detail="The value is empty.")
+        set_secret(mcp_secret_key(name, secret), body.value.strip())
+        await mcp_manager.stop(name)  # it reads its environment at start
+
+    @app.delete("/api/mcp/servers/{name}/secrets/{secret}", dependencies=auth, status_code=204)
+    async def delete_mcp_secret(name: str, secret: str) -> None:
+        if secret not in mcp_or_404(name).secrets:
+            raise HTTPException(status_code=404, detail="The server has no secret with that name.")
+        delete_secret(mcp_secret_key(name, secret))
+        await mcp_manager.stop(name)
 
     @app.put("/api/skills/{name}", dependencies=auth, status_code=204)
     def set_skill_enabled(name: str, body: SkillEnabledIn) -> None:

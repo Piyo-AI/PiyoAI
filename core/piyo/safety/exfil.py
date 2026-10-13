@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 # Tools whose output is the user's own data. A new tool family that reads private data goes here
 # (tests/test_exfil.py fails for a registered tool nobody has classified).
-PRIVATE_PREFIXES = ("files.", "gmail.", "calendar.", "google.")
+PRIVATE_PREFIXES = ("files.", "gmail.", "calendar.", "google.", "mcp.")  # mcp: a server reads from anywhere
 PRIVATE_TOOLS = {"memory.recall", "skill.run_script"}
 
 _DOMAIN = re.compile(r"(?<![\w@.-])((?:[a-z0-9-]+\.)+[a-z]{2,})(?![\w-])")
