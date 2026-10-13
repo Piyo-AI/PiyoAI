@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
+from typing import TYPE_CHECKING
 
 from piyo.safety.untrusted import wrap_untrusted
 from piyo.skills import SkillRegistry
 from piyo.skills.runner import ScriptError, ScriptRunner
 from piyo.tools.base import Risk, RunContext, Tool
 
+if TYPE_CHECKING:
+    from piyo.agents.broker import ResourceBroker
 
-def script_tools(runner: ScriptRunner, skills: SkillRegistry) -> list[Tool]:
+
+def script_tools(
+    runner: ScriptRunner, skills: SkillRegistry, broker: ResourceBroker | None = None
+) -> list[Tool]:
     async def run(args: dict, ctx: RunContext) -> str:
         name, script = str(args.get("skill") or ""), str(args.get("script") or "")
         skill = ctx.skills.get(name)
@@ -22,7 +29,9 @@ def script_tools(runner: ScriptRunner, skills: SkillRegistry) -> list[Tool]:
         if not isinstance(extra, dict):
             raise ValueError("args must be a JSON object.")
         try:
-            result = await runner.run(skill, script, extra)
+            # Past the gate: wait for a free script slot (the broker's `scripts` pool) only now.
+            async with broker.lease("scripts") if broker else nullcontext():
+                result = await runner.run(skill, script, extra)
         except ScriptError as e:
             raise ValueError(str(e)) from None
         text = json.dumps(result.value, ensure_ascii=False, indent=2)

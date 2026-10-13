@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from test_runs import AUTH, TOKEN, scripted
 
 from piyo.agent import Agent, Finished
-from piyo.agents import AgentManager
+from piyo.agents import AgentManager, ResourceBroker
 from piyo.config.folders import ApprovedFolders, FolderGrant
 from piyo.integrations.google import GoogleAuth, GoogleError
 from piyo.models import Provider
@@ -40,9 +40,13 @@ def settle(n: int = 20):
     return go()
 
 
-def manager(tmp_path, execute, parallel=2):
+def broker(runs=2, **sizes):
+    return ResourceBroker(lambda pool: {"runs": runs, **sizes}.get(pool, 1))
+
+
+def manager(tmp_path, execute, parallel=2, **sizes):
     store = SchedulerStore(tmp_path / "s.db")
-    return store, AgentManager(store, execute, max_parallel=parallel)
+    return store, AgentManager(store, execute, broker(parallel, **sizes))
 
 
 def agent(store, title="A", priority="normal"):

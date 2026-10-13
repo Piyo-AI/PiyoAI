@@ -1,30 +1,29 @@
 """Runs background agents side by side: queueing by priority, pause and resume, cancel, restart recovery.
 
 The scheduler decides *when* an agent runs and keeps the held actions and notifications; this decides *how*:
-each run gets its own `Agent` (built by the server's `execute`), waits for a free slot (`max_parallel`, higher
-priority first), and can be paused between model turns and resumed from its saved conversation, also after a
-restart. Run records live in `scheduler.db` (`agent_runs`).
+each run gets its own `Agent` (built by the server's `execute`), waits for a run slot from the resource
+broker (`runs` pool, higher priority first), and can be paused between model turns and resumed from its
+saved conversation, also after a restart. Run records live in `scheduler.db` (`agent_runs`).
 
-Until the resource broker exists (docs/phase-9, workstream B), two simple limits stand in for it: a fixed
-number of runs at once, and one background run at a time in the signed-in browser profile (taken at its first
-browser call, held until the run ends or pauses).
+Every lease a run takes (run slot, model calls, the browser, scripts) is swept back to the broker when a
+part of the run ends, whether it finished, paused, failed or was cancelled. A run asked to make room for a
+higher-priority one (`preempted`) pauses at its checkpoint and queues again at once.
 """
 
 from __future__ import annotations
 
 import asyncio
-import heapq
-import itertools
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+from piyo.agents.broker import Holder, Lease, ResourceBroker, pool_capacity
+from piyo.config.resource_limits import DEFAULT_PRESET, PRESETS
 from piyo.safety import ApprovalDeferred, ApprovalRequest
 from piyo.scheduler.service import Approver, RunResult
 from piyo.scheduler.store import ACTIVE_STATES, AgentRun, Job, SchedulerStore
 
-DEFAULT_PARALLEL = 3
-RANK = {"low": 0, "normal": 1, "high": 2}
 EVENT_QUEUE = 200  # per listener; a listener that falls this far behind misses events
+PREEMPTED = "preempted"
 
 
 @dataclass
@@ -34,15 +33,19 @@ class RunControl:
     run_id: str
     job_id: str
     conversation_id: str | None  # continue this conversation; None starts a new one
+    holder: Holder = field(default_factory=lambda: Holder("run"))  # what it takes leases as
     pause_reason: str | None = None
     cancel_requested: bool = False
-    has_browser: bool = False
+    browser_lease: Lease | None = None
     paused: bool = False  # waiting at a checkpoint for `resume`
     held: int = 0
-    task: asyncio.Task | None = None  # the agent segment that is running now
-    waiter: asyncio.Future | None = None  # the slot it is queued for
+    task: asyncio.Task | None = None  # waiting for a run slot, or the agent segment that is running now
     resumed: asyncio.Event = field(default_factory=asyncio.Event)
     manager: AgentManager | None = None
+
+    @property
+    def has_browser(self) -> bool:
+        return self.browser_lease is not None and not self.browser_lease.released
 
     def should_pause(self) -> bool:
         """Asked by the agent loop between model turns."""
@@ -58,7 +61,7 @@ class RunControl:
         """Called before a tool runs. Browser tools wait for the browser profile if another run has it."""
         if self.manager:
             if name.startswith(("browser.", "browser__")) and not self.has_browser:
-                await self.manager._take_browser(self)
+                self.browser_lease = await self.manager.broker.acquire("browser", self.holder)
             self.manager.publish({"type": "tool", "run_id": self.run_id, "job_id": self.job_id, "name": name})
 
 
@@ -66,13 +69,10 @@ Execute = Callable[[Job, Approver, RunControl], Awaitable[RunResult]]
 
 
 class AgentManager:
-    def __init__(self, store: SchedulerStore, execute: Execute, max_parallel: int = DEFAULT_PARALLEL) -> None:
-        self.store, self._execute, self.max_parallel = store, execute, max_parallel
+    def __init__(self, store: SchedulerStore, execute: Execute, broker: ResourceBroker | None = None) -> None:
+        self.store, self._execute = store, execute
+        self.broker = broker or ResourceBroker(lambda pool: pool_capacity(PRESETS[DEFAULT_PRESET], pool))
         self._live: dict[str, RunControl] = {}
-        self._running = 0
-        self._queue: list[tuple[int, int, asyncio.Future]] = []
-        self._order = itertools.count()
-        self._browser = asyncio.Lock()
         self._listeners: set[asyncio.Queue] = set()
         # Starts a run again in the background (the scheduler's `launch`, which also records how it ended).
         self.relaunch: Callable[[Job, AgentRun], object] | None = None
@@ -99,43 +99,30 @@ class AgentManager:
         self.publish({"type": "run", "run": vars(run)})
         return run
 
-    # -- slots -----------------------------------------------------------------------------
+    # -- leases ----------------------------------------------------------------------------
 
-    async def _slot(self, control: RunControl, priority: str) -> None:
-        if self._running < self.max_parallel and not self._queue:
-            self._running += 1
-            return
-        waiter = asyncio.get_running_loop().create_future()
-        control.waiter = waiter
-        heapq.heappush(self._queue, (-RANK.get(priority, 1), next(self._order), waiter))
+    def _holder(self, control: RunControl, priority: str) -> Holder:
+        def on_wait(pool: str) -> None:
+            if pool != "runs":  # waiting for a run slot is "queued"
+                self._set(control, state="waiting", reason=pool)
+
+        def on_granted(pool: str) -> None:
+            if pool != "runs":
+                self._set(control, state="running", reason=None)
+
+        def preempt() -> None:
+            if control.pause_reason is None:  # a pause the user asked for wins
+                control.pause_reason = PREEMPTED
+
+        return Holder(control.run_id, priority, on_wait=on_wait, on_granted=on_granted, preempt=preempt)
+
+    async def _slot(self, control: RunControl) -> None:
+        # A task of its own, so `cancel` stops the wait the same way it stops a running part.
+        control.task = asyncio.get_running_loop().create_task(self.broker.acquire("runs", control.holder))
         try:
-            await waiter  # when it resolves, the slot was handed over: `_running` already counts it
-        except asyncio.CancelledError:
-            if waiter.done() and not waiter.cancelled():
-                self._free_slot()  # handed over just as it was cancelled: pass it on
-            raise
+            await control.task
         finally:
-            control.waiter = None
-
-    def _free_slot(self) -> None:
-        while self._queue:
-            _, _, waiter = heapq.heappop(self._queue)
-            if not waiter.done():
-                waiter.set_result(None)
-                return
-        self._running -= 1
-
-    async def _take_browser(self, control: RunControl) -> None:
-        if self._browser.locked():
-            self._set(control, state="waiting", reason="browser")
-        await self._browser.acquire()
-        control.has_browser = True
-        self._set(control, state="running", reason=None)
-
-    def _drop_browser(self, control: RunControl) -> None:
-        if control.has_browser:
-            control.has_browser = False
-            self._browser.release()
+            control.task = None
 
     # -- running ---------------------------------------------------------------------------
 
@@ -151,6 +138,7 @@ class AgentManager:
         elif run.id in self._live:
             return RunResult(run.conversation_id, "skipped")
         control = RunControl(run.id, job.id, run.conversation_id, held=run.held, manager=self)
+        control.holder = self._holder(control, job.priority)
         self._live[run.id] = control
 
         async def counted(request: ApprovalRequest) -> bool:
@@ -167,10 +155,11 @@ class AgentManager:
             self._live.pop(run.id, None)
 
     async def _run(self, job: Job, control: RunControl, approver: Approver) -> RunResult:
+        queued_reason = None
         while True:
-            self._set(control, state="queued", reason=None)
+            self._set(control, state="queued", reason=queued_reason)
             try:
-                await self._slot(control, job.priority)
+                await self._slot(control)
             except asyncio.CancelledError:
                 return self._cancelled(control)
             try:
@@ -187,11 +176,17 @@ class AgentManager:
                 result = RunResult(control.conversation_id, "error", error=str(e) or type(e).__name__)
             finally:
                 control.task = None
-                self._drop_browser(control)
-                self._free_slot()
+                control.browser_lease = None
+                self.broker.release_all(control.holder)  # the sweep: nothing outlives this part of the run
             if result.outcome != "paused":
                 return self._finish(control, result)
             control.conversation_id = result.conversation_id or control.conversation_id
+            if control.pause_reason == PREEMPTED:  # made room for a higher-priority run: queue again now
+                control.pause_reason = None
+                queued_reason = PREEMPTED
+                self._set(control, conversation_id=control.conversation_id)
+                continue
+            queued_reason = None
             self._set(
                 control, state="paused", reason=control.pause_reason, conversation_id=control.conversation_id
             )
@@ -263,8 +258,6 @@ class AgentManager:
         control.cancel_requested = True
         if control.task is not None:
             control.task.cancel()
-        elif control.waiter is not None:
-            control.waiter.cancel()
         else:
             control.resumed.set()  # paused: wake it so it ends
         return self.store.get_run(run_id)

@@ -18,7 +18,8 @@ from pydantic import BaseModel, ValidationError
 
 from piyo import __version__
 from piyo.agent import Agent, Finished, Text, ToolFinished, ToolStarted
-from piyo.agents import AgentManager, RunControl
+from piyo.agents import AgentManager, Holder, ResourceBroker, RunControl, leased_turn, use_holder
+from piyo.agents.broker import pool_capacity
 from piyo.config import data_dir, workspace_dir
 from piyo.config.browser_rules import BrowserRules
 from piyo.config.folders import ApprovedFolders, FolderGrant
@@ -26,6 +27,8 @@ from piyo.config.model_limits import ContextLimits, ModelLimits
 from piyo.config.model_prices import ModelPrices, Price
 from piyo.config.model_vision import ModelVision
 from piyo.config.onboarding import Onboarding
+from piyo.config.resource_limits import BOUNDS as LIMIT_BOUNDS
+from piyo.config.resource_limits import PRESETS, Limits, ResourceLimits, preset_of
 from piyo.config.run_settings import RunSettings
 from piyo.config.secrets import delete_secret, get_secret, set_secret
 from piyo.config.skill_state import SkillState
@@ -597,6 +600,35 @@ class RunSettingsOut(BaseModel):
     local_only: bool
 
 
+class LimitsIO(BaseModel):
+    runs: int
+    browser_contexts: int
+    browser_tabs: int
+    tabs_per_run: int
+    cloud_model_calls: int
+    local_model_calls: int
+    scripts: int
+
+
+class ResourceLimitsIn(BaseModel):
+    preset: str | None = None  # sets every value; otherwise `limits` is used as given
+    limits: LimitsIO | None = None
+
+
+class PoolUsage(BaseModel):
+    capacity: int
+    used: int
+    waiting: int
+
+
+class ResourceLimitsOut(BaseModel):
+    preset: str  # light | balanced | heavy | custom
+    limits: LimitsIO
+    presets: dict[str, LimitsIO]
+    bounds: dict[str, list[int]]  # name: [minimum, maximum]
+    usage: dict[str, PoolUsage]  # pools in use since the core started
+
+
 class PriceIn(BaseModel):
     provider: str
     model: str
@@ -789,6 +821,18 @@ def create_app(
     context_limits = ContextLimits()
     tool_modes = ToolModes()
     run_settings = RunSettings()
+    resource_limits = ResourceLimits()
+
+    def capacity(pool: str) -> int:
+        local = False
+        if pool.startswith("model:"):
+            try:
+                local = registry.get(pool.removeprefix("model:")).local
+            except KeyError:
+                pass
+        return pool_capacity(resource_limits.get(), pool, local)
+
+    broker = ResourceBroker(capacity)
     prices = ModelPrices()
     vision = ModelVision()
     reported_prices: dict[tuple[str, str], Price] = {}
@@ -812,7 +856,7 @@ def create_app(
     tools = ToolRegistry(
         core_tools()
         + memory_tools(memory)
-        + script_tools(ScriptRunner(data_dir() / "scripts", get_secret, helpers=helpers), skills)
+        + script_tools(ScriptRunner(data_dir() / "scripts", get_secret, helpers=helpers), skills, broker)
         + file_tools(folders)
         + web_tools()
         + browser_tools(browser)
@@ -1321,6 +1365,34 @@ def create_app(
     async def stop_browser() -> BrowserOut:
         await browser.stop()
         return BrowserOut(**vars(browser.status()))
+
+    def resource_limits_out() -> ResourceLimitsOut:
+        current = resource_limits.get()
+        return ResourceLimitsOut(
+            preset=preset_of(current),
+            limits=LimitsIO(**vars(current)),
+            presets={name: LimitsIO(**vars(values)) for name, values in PRESETS.items()},
+            bounds={key: list(bounds) for key, bounds in LIMIT_BOUNDS.items()},
+            usage={pool: PoolUsage(**use) for pool, use in broker.usage().items()},
+        )
+
+    @app.get("/api/resource-limits", dependencies=auth)
+    def get_resource_limits() -> ResourceLimitsOut:
+        return resource_limits_out()
+
+    @app.put("/api/resource-limits", dependencies=auth)
+    def set_resource_limits(body: ResourceLimitsIn) -> ResourceLimitsOut:
+        try:
+            if body.preset is not None:
+                resource_limits.use_preset(body.preset)
+            elif body.limits is not None:
+                resource_limits.set(Limits(**body.limits.model_dump()))
+            else:
+                raise ValueError("Send a preset or the limits.")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        broker.limits_changed()  # a raised limit lets waiting runs go now
+        return resource_limits_out()
 
     @app.get("/api/run-settings", dependencies=auth)
     def get_run_settings() -> RunSettingsOut:
@@ -1848,6 +1920,7 @@ def create_app(
         approver,
         skill_view: SkillRegistry | None = None,
         budget: dict | None = None,
+        holder: Holder | None = None,
     ) -> Agent:
         settings = run_settings.get()
         own = budget or {}  # an agent's own limits replace the global ones
@@ -1858,7 +1931,7 @@ def create_app(
             skill_view or skills,
             PermissionGate(approver),
             max_tokens=limits.resolve(provider.id, model, reported.get((provider.id, model))),
-            turn_fn=turn_for(provider.id, model),
+            turn_fn=leased_turn(turn_for(provider.id, model), broker),  # model calls are counted
             context_tokens=context_limits.resolve(
                 provider.id, model, reported_context.get((provider.id, model))
             ),
@@ -1868,6 +1941,7 @@ def create_app(
             timeout_s=own.get("timeout_s", settings.timeout_s),
             model_caps=caps_for(provider.id, model),
             integration_issue=integration_issue,
+            waited=(lambda: holder.waited) if holder else None,
         )
 
     def scope_for(job: Job) -> Scope:
@@ -1905,7 +1979,9 @@ def create_app(
             task = f"(continued) {job.prompt}"
         control.started(conv.id)
         saved_from = len(messages)
-        agent = build_agent(provider, job.model, approver, skills.restricted(scope.skills), job.budget)
+        agent = build_agent(
+            provider, job.model, approver, skills.restricted(scope.skills), job.budget, control.holder
+        )
         agent.should_pause = control.should_pause
         log = RunLog(
             conv.id, provider.id, job.model, task, price=price_for(provider, job.model),
@@ -1914,7 +1990,7 @@ def create_app(
         agent.log = log
         outcome, error = "done", None
         try:
-            with use_scope(scope):
+            with use_scope(scope), use_holder(control.holder):
                 async for event in agent.run(messages, set(conv.active_skills)):
                     if isinstance(event, ToolStarted):
                         await control.tool_starting(event.name)  # the tool runs once this returns
@@ -1947,7 +2023,7 @@ def create_app(
         with use_scope(scope):
             return await tool.handler(arguments, RunContext(skills=skills))
 
-    agents = AgentManager(scheduler_store, execute_agent)
+    agents = AgentManager(scheduler_store, execute_agent, broker)
     scheduler = Scheduler(scheduler_store, agents.run, run_approved_action)
     agents.relaunch = scheduler.launch
     for schedule_tool in schedule_tools(scheduler) + agent_tools(
@@ -2232,7 +2308,8 @@ def create_app(
                     }
                 )
                 return
-            agent = build_agent(provider, req.model, approver)
+            holder = Holder(f"chat:{id(ws)}", interactive=True)  # ranks above every background run
+            agent = build_agent(provider, req.model, approver, holder=holder)
             if req.conversation_id:
                 try:
                     conv = store.get(req.conversation_id)
@@ -2279,36 +2356,37 @@ def create_app(
                 store.set_active_skills(conv.id, sorted(agent.active_skills))
 
             try:
-                async for event in agent.run(messages, set(conv.active_skills)):
-                    if isinstance(event, Text):
-                        await ws.send_json({"type": "delta", "text": event.text})
-                    elif isinstance(event, ToolStarted):
-                        if event.name.startswith(("browser.", "browser__")):
-                            used_browser = True
-                            browser.set_working(True)
-                        await ws.send_json(
-                            {
-                                "type": "tool_start",
-                                "id": event.id,
-                                "name": event.name,
-                                "arguments": event.arguments,
-                            }
-                        )
-                    elif isinstance(event, ToolFinished):
-                        await ws.send_json(
-                            {
-                                "type": "tool_end",
-                                "id": event.id,
-                                "name": event.name,
-                                "output": event.output[:UI_OUTPUT_CHARS],
-                                "is_error": event.is_error,
-                                "view": event.view,  # not cut with the output: the core already checked it
-                            }
-                        )
-                    elif isinstance(event, Finished):
-                        save()  # before "done", so a list refresh right after it sees this run
-                        save_log(event.reason)
-                        await ws.send_json({"type": "done", "reason": event.reason})
+                with use_holder(holder):  # model calls and scripts lease as the chat
+                    async for event in agent.run(messages, set(conv.active_skills)):
+                        if isinstance(event, Text):
+                            await ws.send_json({"type": "delta", "text": event.text})
+                        elif isinstance(event, ToolStarted):
+                            if event.name.startswith(("browser.", "browser__")):
+                                used_browser = True
+                                browser.set_working(True)
+                            await ws.send_json(
+                                {
+                                    "type": "tool_start",
+                                    "id": event.id,
+                                    "name": event.name,
+                                    "arguments": event.arguments,
+                                }
+                            )
+                        elif isinstance(event, ToolFinished):
+                            await ws.send_json(
+                                {
+                                    "type": "tool_end",
+                                    "id": event.id,
+                                    "name": event.name,
+                                    "output": event.output[:UI_OUTPUT_CHARS],
+                                    "is_error": event.is_error,
+                                    "view": event.view,  # not cut with the output: already checked
+                                }
+                            )
+                        elif isinstance(event, Finished):
+                            save()  # before "done", so a list refresh right after it sees this run
+                            save_log(event.reason)
+                            await ws.send_json({"type": "done", "reason": event.reason})
             except (WebSocketDisconnect, asyncio.CancelledError):
                 save_log("cancelled")
                 raise
@@ -2322,6 +2400,7 @@ def create_app(
                 save_log("error", "The run ended unexpectedly.")
                 current_log = None
                 browser.set_working(False)
+                broker.release_all(holder)  # a stream cut off mid-call gives its model slot back now
 
         async def run_agent(req: ChatRequest, provider: Provider) -> None:
             """Whatever goes wrong, the app must get an answer instead of waiting forever."""

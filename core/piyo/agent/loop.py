@@ -90,8 +90,10 @@ class Agent:
         integration_issue: Callable[[str], str | None] | None = None,  # see RunContext
         memory_prompt: Callable[[], str] | None = None,  # what the user's memory adds to the system prompt
         should_pause: Callable[[], bool] | None = None,  # asked between model turns (background agents)
+        waited: Callable[[], float] | None = None,  # seconds spent waiting for shared resources so far
     ) -> None:
         self.should_pause = should_pause
+        self.waited = waited
         self.memory_prompt = memory_prompt
         self.integration_issue = integration_issue
         self.model_caps = model_caps
@@ -132,6 +134,7 @@ class Agent:
         catalog =self.skills.catalog_prompt(self.model_caps)
         memory = self.memory_prompt() if self.memory_prompt else ""
         started_run = time.monotonic()
+        waited_before = self.waited() if self.waited else 0.0
         self._approval_wait = 0.0
         self.tokens_used = 0
         self._failures, self._declined = {}, set()
@@ -144,6 +147,8 @@ class Agent:
                 yield Finished("token_limit", sorted(ctx.active_skills))
                 return
             elapsed = time.monotonic() - started_run - self._approval_wait
+            if self.waited:  # waiting for a model slot or the browser is not the run's time either
+                elapsed -= self.waited() - waited_before
             if self.timeout_s and elapsed > self.timeout_s:
                 yield Finished("timeout", sorted(ctx.active_skills))
                 return
