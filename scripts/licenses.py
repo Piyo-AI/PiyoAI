@@ -152,19 +152,20 @@ def python_packages() -> list[Package]:
         packages.append(from_distribution(name, version, dist))
     if missing:  # packages for other platforms: unpack their wheels for the metadata
         with tempfile.TemporaryDirectory() as tmp:
-            for platform in ("x86_64-unknown-linux-gnu", "aarch64-apple-darwin"):
-                todo = [f"{n}=={v}" for n, v in missing if not any(p.name == n for p in packages)]
-                if not todo:
-                    break
-                subprocess.run(
-                    [shutil.which("uv") or "uv", "pip", "install", "--no-deps", "--quiet", "--target", tmp,
-                     "--python-platform", platform, *todo],
-                    cwd=CORE, capture_output=True,
-                )
-                found = {d.metadata["Name"].lower().replace("_", "-"): d for d in metadata.distributions(path=[tmp])}
-                for n, v in missing:
-                    if n in found and not any(p.name == n for p in packages):
+            # One package per install: a package with no wheel for a platform (pywin32 off Windows) must not make
+            # the whole install fail and hide the others.
+            for n, v in missing:
+                for platform in ("x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu", "aarch64-apple-darwin"):
+                    target = Path(tmp) / f"{n}-{platform}"
+                    done = subprocess.run(
+                        [shutil.which("uv") or "uv", "pip", "install", "--no-deps", "--quiet", "--target", str(target),
+                         "--python-platform", platform, f"{n}=={v}"],
+                        cwd=CORE, capture_output=True,
+                    )
+                    found = {d.metadata["Name"].lower().replace("_", "-"): d for d in metadata.distributions(path=[str(target)])}
+                    if done.returncode == 0 and n in found:
                         packages.append(from_distribution(n, v, found[n]))
+                        break
             for n, v in missing:
                 if not any(p.name == n for p in packages):
                     packages.append(Package("python", n, v, "", problem="not installed here and no wheel for another platform"))
